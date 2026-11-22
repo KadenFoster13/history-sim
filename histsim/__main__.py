@@ -5,6 +5,8 @@
     python -m histsim graphs runs/w31
     python -m histsim maps runs/w31 --kind people
     python -m histsim info runs/w31
+    python -m histsim watch --world 31 --seed 1          watch a history live (add --save to keep it)
+    python -m histsim replay runs/w31                    replay a saved run
 """
 import argparse
 import os
@@ -12,7 +14,7 @@ import time
 
 from . import __version__
 from .analysis import plot_run
-from .analysis.maps import MAP_KINDS, plot_maps
+from .analysis.maps import BACKGROUNDS, MAP_KINDS, plot_maps
 from .config import PEOPLING_LEVELS, peopling
 from .core import Simulation, label
 from .record import RunReader, RunRecorder
@@ -40,16 +42,46 @@ def cmd_run(args):
     print(f"saved to {out} ({time.time() - t0:.0f}s)")
     if not args.no_graphs:
         print(f"graphs: {plot_run(out)}")
-        print(f"maps: {plot_maps(out, kind='people', world=world)}")
+        for kind in ("people", "cultures"):
+            print(f"maps: {plot_maps(out, kind=kind, world=world)}")
 
 
 def cmd_graphs(args):
-    print(plot_run(args.run, out=args.out, smooth_years=args.smooth))
+    print(plot_run(args.run, out=args.out, smooth_years=args.smooth, dark=args.dark))
 
 
 def cmd_maps(args):
     years = [int(y) for y in args.years.split(",")] if args.years else None
-    print(plot_maps(args.run, years=years, kind=args.kind, out=args.out))
+    print(plot_maps(args.run, years=years, kind=args.kind, out=args.out, dark=args.dark,
+                    background=args.background))
+
+
+def cmd_watch(args):
+    from .viewer import watch
+    world = load_world(args.world, args.width)
+    sim = Simulation(world, seed=args.seed, start_year=args.start, systems=default_systems(),
+                     config=peopling(args.peopling))
+    recorder = None
+    if args.save:
+        recorder = RunRecorder(args.save, sim, keyframe_every=100,
+                               settings={"start": args.start, "peopling": args.peopling, "watched": True})
+    print("preparing the world (peopling, cultures)...")
+    watch(world, sim, title=f"World {args.world}, history seed {args.seed}", recorder=recorder)
+    if args.save:
+        print(f"saved to {args.save}")
+
+
+def cmd_replay(args):
+    from .viewer import replay
+    run = RunReader(args.run)
+    world = load_world(run.meta["world_seed"], run.meta["world_width"])
+    replay(world, run, title=f"World {run.meta['world_seed']}, history seed {run.meta['sim_seed']}")
+
+
+def _dark_flags(parser):
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--dark", dest="dark", action="store_true", default=None, help="dark background")
+    group.add_argument("--light", dest="dark", action="store_false", help="light background")
 
 
 def cmd_info(args):
@@ -87,15 +119,34 @@ def main(argv=None):
     graphs.add_argument("run")
     graphs.add_argument("--out")
     graphs.add_argument("--smooth", type=int, default=0, help="running average over this many years")
+    _dark_flags(graphs)
     graphs.set_defaults(func=cmd_graphs)
 
     maps = sub.add_parser("maps", help="draw maps of a saved run at several years")
     maps.add_argument("run")
     maps.add_argument("--kind", choices=MAP_KINDS, default="people",
-                      help="people (how they live), density, or arrival (first settlement)")
+                      help="people (how they live), density, cultures, families (language families) "
+                           "or arrival (first settlement)")
     maps.add_argument("--years", help="comma-separated simulation years (default: six across the run)")
     maps.add_argument("--out")
+    maps.add_argument("--background", choices=BACKGROUNDS,
+                      help="what the maps are drawn on (default: the viewer's last choice, else terrain)")
+    _dark_flags(maps)
     maps.set_defaults(func=cmd_maps)
+
+    watch = sub.add_parser("watch", help="watch a history live as it is simulated")
+    watch.add_argument("--world", type=int, default=1, help="world seed")
+    watch.add_argument("--width", type=int, default=800, help="world map width")
+    watch.add_argument("--seed", type=int, default=1, help="history seed")
+    watch.add_argument("--start", type=int, default=0, help="first year (0 = 10,000 BCE)")
+    watch.add_argument("--peopling", choices=list(PEOPLING_LEVELS), default="some",
+                       help="how much of the world people reach by 10,000 BCE")
+    watch.add_argument("--save", help="also save the run to this folder (for replay and graphs)")
+    watch.set_defaults(func=cmd_watch)
+
+    replay = sub.add_parser("replay", help="replay a saved run in the viewer")
+    replay.add_argument("run")
+    replay.set_defaults(func=cmd_replay)
 
     info = sub.add_parser("info", help="summarise a saved run")
     info.add_argument("run")

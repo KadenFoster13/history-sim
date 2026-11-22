@@ -177,7 +177,12 @@ class Farming(System):
         where = f"{abs(lat):.0f}{'N' if lat >= 0 else 'S'} {abs(lon):.0f}{'E' if lon >= 0 else 'W'}"
         verb = "First farming in the world" if not state.stats.get("domestications") else (
             "A new, independent beginning of farming" if independent else "Farmers tame another species")
-        state.event("domestication", f"{verb}: people near {where} tame the {sp.label}.",
+        culture = state.cells.get("culture")
+        cultures = state.tables.get("cultures")
+        who = f"people near {where}"
+        if culture is not None and cultures and 0 < culture[r, c] < len(cultures) and cultures[culture[r, c]]:
+            who = f"the {cultures[culture[r, c]]['name']} (near {where})"
+        state.event("domestication", f"{verb}: {who} tame the {sp.label}.",
                     species=sp.key, lat=lat, lon=lon, independent=independent)
 
     def _first_landmass_events(self, state, i, take):

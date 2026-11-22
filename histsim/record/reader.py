@@ -53,6 +53,16 @@ class RunReader:
                 out.append(e)
         return out
 
+    def tables(self):
+        """Entities that ever existed: {table name: list of dicts} (empty if none were saved)."""
+        if not hasattr(self, "_tables"):
+            path = os.path.join(self.dir, "tables.json")
+            self._tables = {}
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    self._tables = json.load(f)
+        return self._tables
+
     def layers_at(self, year, names=None):
         """Every recorded layer (or just `names`) as it was at the end of `year`.
 

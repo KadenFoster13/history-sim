@@ -3,3 +3,4 @@ __pycache__/
 *.egg-info/
 world_cache/
 runs/
+renders/

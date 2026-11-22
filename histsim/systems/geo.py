@@ -43,3 +43,85 @@ class ShelfSource:
         sea = world.ocean.ravel()
         flat[sea] = values.reshape(-1)[self.index.ravel()[sea]]
         return out
+
+
+# ------------------------------------------------------------ travel graph
+EARTH_RADIUS_KM = 6371.0
+
+
+def cell_graph(world, cost, mask):
+    """A graph of the map for shortest-path work: an edge between each pair of 4-neighbour
+    cells in `mask` (wrapping east-west), weighted km x the average `cost` of the two.
+
+    Returns (graph, edges): a scipy sparse matrix over all cells (row-major index) and
+    the (a, b) cell-index arrays of its edges, each pair listed once.
+    """
+    from scipy.sparse import coo_matrix
+
+    h, w = mask.shape
+    idx = np.arange(h * w).reshape(h, w)
+    kpp = world.grid.km_per_px
+    cos_lat = np.maximum(np.cos(np.radians(world.grid.lat)), 0.05)
+    east = mask & np.roll(mask, -1, axis=1)
+    south = mask[:-1] & mask[1:]
+    a = np.concatenate([idx[east], idx[:-1][south]])
+    b = np.concatenate([np.roll(idx, -1, axis=1)[east], idx[1:][south]])
+    wt = np.concatenate([(kpp * cos_lat * 0.5 * (cost + np.roll(cost, -1, axis=1)))[east],
+                         (kpp * 0.5 * (cost[:-1] + cost[1:]))[south]])
+    wt = np.maximum(wt, 1e-3)
+    n = h * w
+    graph = coo_matrix((np.concatenate([wt, wt]), (np.concatenate([a, b]), np.concatenate([b, a]))),
+                       shape=(n, n)).tocsr()
+    return graph, (a, b)
+
+
+def nearest_seed(graph, seeds, n):
+    """For every cell, which seed (index into `seeds`) is closest along the graph (-1 = none)."""
+    from scipy.sparse.csgraph import dijkstra
+
+    seeds = np.asarray(seeds, int)
+    if not len(seeds):
+        return np.full(n, -1)
+    _, _, sources = dijkstra(graph, directed=False, indices=seeds, min_only=True, return_predecessors=True)
+    label = np.full(n, -1)
+    found = sources >= 0
+    lookup = {int(s): i for i, s in enumerate(seeds)}
+    label[found] = np.vectorize(lookup.get)(sources[found])
+    return label
+
+
+def subgraph(graph, edges, keep):
+    """`graph` with only the edges whose two ends satisfy keep(a, b) (arrays of cell indices)."""
+    from scipy.sparse import coo_matrix
+
+    a, b = edges
+    ok = keep(a, b)
+    data = np.asarray(graph[a[ok], b[ok]]).ravel()
+    n = graph.shape[0]
+    return coo_matrix((np.concatenate([data, data]), (np.concatenate([a[ok], b[ok]]),
+                                                      np.concatenate([b[ok], a[ok]]))), shape=(n, n)).tocsr()
+
+
+def great_circle_km(xyz_a, xyz_b):
+    """Distance over the globe between unit vectors (arrays with a last axis of 3)."""
+    chord = np.linalg.norm(np.asarray(xyz_a) - np.asarray(xyz_b), axis=-1)
+    return 2 * EARTH_RADIUS_KM * np.arcsin(np.clip(chord / 2, 0, 1))
+
+
+def spaced_sample(rng, weight, n, xyz, min_km, tries=20):
+    """Up to `n` cells drawn by `weight` (flat), no two closer than `min_km`."""
+    flat = np.asarray(weight, float).ravel()
+    total = flat.sum()
+    if total <= 0 or n <= 0:
+        return []
+    candidates = rng.choice(flat.size, size=min(flat.size, n * tries), p=flat / total)
+    chosen, points = [], []
+    for c in candidates:
+        p = xyz[c]
+        if points and great_circle_km(np.array(points), p).min() < min_km:
+            continue
+        chosen.append(int(c))
+        points.append(p)
+        if len(chosen) >= n:
+            break
+    return chosen

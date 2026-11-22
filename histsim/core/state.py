@@ -1,7 +1,9 @@
 """The simulation's state: everything that changes over history.
 
 - `cells`: per-cell layers, numpy arrays shaped like the world map (rows, cols).
-- `tables`: entities (cultures, states, religions, people, ...), added in later phases.
+- `tables`: entities (cultures, languages, settlements, states, ...). Those named in
+  `saved_tables` are lists of JSON-ready dicts with `founded` / `ended` years, saved
+  with the run, so a replay knows every entity that ever existed.
 - `stats` / `events`: what systems report for the current year; the recorder saves them.
 """
 from dataclasses import dataclass, field
@@ -24,6 +26,7 @@ class SimState:
     events: list = field(default_factory=list)
     record_modes: dict = field(default_factory=dict)   # layer -> how the recorder saves it
     config: object = None               # SimConfig
+    saved_tables: set = field(default_factory=set)     # tables the recorder saves (JSON-ready)
 
     @property
     def shape(self):

@@ -8,7 +8,7 @@ from ..core.calendar import real_year
 from ..record.reader import RunReader
 
 # Nicer titles for known statistics; anything else is shown under its own name.
-LOG_SCALE = {"world_population", "foragers", "herders", "farmers"}
+LOG_SCALE = {"world_population", "foragers", "herders", "farmers", "largest_settlement"}
 TITLES = {
     "world_population": "World population (Earth's history shown as grey bars)",
     "foragers": "Foragers (hunter-gatherers)",
@@ -27,7 +27,17 @@ TITLES = {
     "exposed_shelf_share": "Ice-age land still above sea (share of today's land)",
     "drought_share": "Land in drought (share)",
     "volcanic_cooling_c": "Volcanic cooling (C)",
+    "cultures": "Cultures (peoples with their own language)",
+    "language_families": "Language families",
+    "largest_culture_share": "Largest people's share of world population",
+    "towns": "Towns (2,000+ people)",
+    "cities": "Cities (10,000+ people)",
+    "largest_settlement": "Largest town or city (Earth's shown as grey bars)",
+    "urban_share": "Share of people in towns and cities",
 }
+
+# Earth, for the largest place: (simulation year, low, typical, high).
+LARGEST_PLACE_TARGETS = [(6_500, 5e3, 1e4, 4e4), (8_000, 2e4, 6e4, 1.5e5), (10_000, 2e5, 1e6, 2e6)]
 
 
 def _format_axis(ax):
@@ -40,13 +50,17 @@ def _format_axis(ax):
     ax.xaxis.set_major_formatter(FuncFormatter(fmt))
 
 
-def plot_run(run_dir, out=None, keys=None, smooth_years=0):
+def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     """A grid of time-series graphs for a run; saved to `out` (default: <run>/graphs.png).
 
     keys          which statistics to plot (default: all)
     smooth_years  optional running average to make noisy series readable
+    dark          dark background (default: the viewers' remembered setting)
     """
     from matplotlib.figure import Figure  # draws to a file without opening a window
+
+    from .style import palette, style_figure
+    colours = palette(dark)
 
     run = RunReader(run_dir)
     stats = run.stats()
@@ -64,24 +78,29 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0):
         if smooth_years and len(y) > smooth_years:
             kernel = np.ones(smooth_years) / smooth_years
             y = np.convolve(np.nan_to_num(y), kernel, mode="same")
-        ax.plot(x, y, linewidth=1)
+        ax.plot(x, y, linewidth=1, color=colours["line"])
         if name in LOG_SCALE and np.nanmax(y) > 0:
             ax.set_yscale("log")
+        targets = None
         if name == "world_population":
             from ..config import POPULATION_TARGETS
-            for year, low, typical, high in POPULATION_TARGETS:
-                rx = real_year(year)
-                if x.min() <= rx <= x.max():
-                    ax.plot([rx, rx], [low, high], color="0.6", linewidth=4, alpha=0.6)
-                    ax.plot(rx, typical, "o", color="0.4", markersize=4)
+            targets = POPULATION_TARGETS
+        elif name == "largest_settlement":
+            targets = LARGEST_PLACE_TARGETS
+        for year, low, typical, high in targets or ():
+            rx = real_year(year)
+            if x.min() <= rx <= x.max():
+                ax.plot([rx, rx], [low, high], color=colours["target"], linewidth=4, alpha=0.6)
+                ax.plot(rx, typical, "o", color=colours["target"], markersize=4)
         ax.set_title(TITLES.get(name, name.replace("_", " ")), fontsize=10)
-        ax.grid(alpha=0.3)
+        ax.grid(alpha=0.3, color=colours["grid"])
         _format_axis(ax)
     for ax in axes.ravel()[len(names):]:
         ax.set_visible(False)
     meta = run.meta
     fig.suptitle(f"World {meta['world_seed']}, history seed {meta['sim_seed']}", fontsize=12)
+    style_figure(fig, axes.ravel(), colours)
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.4 / (2.6 * rows)))   # leave room for the title
     out = out or os.path.join(run_dir, "graphs.png")
-    fig.savefig(out, dpi=100)
+    fig.savefig(out, dpi=100, facecolor=fig.get_facecolor())
     return out

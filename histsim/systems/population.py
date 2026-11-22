@@ -116,6 +116,9 @@ class Population(System):
             cap, mode = farming.capacity(state, forage, land)
         else:
             cap, mode = forage, np.where(forage > 0, FORAGING, 0)
+        town = state.cells.get("settlement")
+        if town is not None:   # townspeople are fed by their hinterland
+            cap = np.where(cap > 0, cap + town, 0).astype(np.float32)
         state.cells["capacity"] = cap
         pop = state.cells["population"]
 

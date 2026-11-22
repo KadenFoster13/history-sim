@@ -8,6 +8,8 @@ A run is a folder:
                              that changed, one file per `chunk_years` years
                              ("snapshot" layers, like population, are only in keyframes)
     events.jsonl         the chronicle: one event per line
+    tables.json          entities that ever existed (cultures, languages, settlements...),
+                         each with the years it was founded and ended
     stats.csv            one row of statistics per year
 
 Storing only what changed keeps runs small (layers change slowly), while keyframes keep
@@ -144,9 +146,17 @@ class RunRecorder:
         with open(os.path.join(self.dir, "meta.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=1, default=_jsonable)
 
+    def _write_tables(self, state):
+        tables = {name: [_public(row) for row in state.tables.get(name, [])] for name in sorted(state.saved_tables)}
+        path = os.path.join(self.dir, "tables.json")
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(tables, f, default=_jsonable, ensure_ascii=False, separators=(",", ":"))
+        os.replace(path + ".tmp", path)
+
     def checkpoint(self):
         """Write everything recorded so far (safe to call mid-run, e.g. every few centuries)."""
         self._events.flush()
+        self._write_tables(self.sim.state)
         self._write_stats()
         self._write_meta(self.sim.state, finished=False)
 
@@ -154,8 +164,16 @@ class RunRecorder:
         """Finish the run: write the last changes, statistics and metadata."""
         self._flush_changes()
         self._events.close()
+        self._write_tables(self.sim.state)
         self._write_stats()
         self._write_meta(self.sim.state, finished=True)
+
+
+def _public(row):
+    """An entity without its working fields (keys starting with _)."""
+    if isinstance(row, dict):
+        return {k: v for k, v in row.items() if not k.startswith("_")}
+    return row
 
 
 def _jsonable(value):

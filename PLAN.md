@@ -117,6 +117,31 @@ A quick setup, not a year-by-year simulation of the Old Stone Age:
 6. **Depth of settlement:** how long ago each region was reached sets its starting
    cultural and language diversity (older regions are more diverse).
 
+### Cultures and languages (phase 2)
+- **At year 0:** a few dozen language families (about one per 4 million km2 of settled
+  land) and several hundred cultures inside them (about 4 per million km2), smaller and
+  more numerous where people have lived longest and forage most. Borders follow travel
+  effort (rough, wooded or mountain country) plus noise, not straight lines.
+- **Languages:** each family has a proto-language (its own sounds, syllable shapes,
+  word lengths and spelling); each culture speaks a daughter language. When a culture
+  splits, the new language inherits the old one's words through 2-4 regular sound
+  changes (p to f, final vowels lost, k before i to ch...) and replaces about 12% of its
+  words, so related peoples have recognisably related names and unrelated ones don't.
+- **Change:** farming arriving among foragers usually brings the farmers' culture (75%),
+  so families spread with farming; denser, farming or herding, town-dwelling neighbours
+  slowly absorb weaker ones; a culture spread wider than ~400 km from its centre (800
+  for herders) splits along natural barriers; a piece cut off for long becomes its own
+  people; cultures with nobody left end.
+
+### Settlements (phase 2)
+Towns grow where farming is old (from ~2,000 years after it arrives, fully by ~5,000),
+the hinterland within ~160 km is dense, and the site is good (rivers, great rivers,
+coasts, river mouths, lakes). The best site in each neighbourhood draws a share of its
+hinterland's people and grows or shrinks gradually; established towns keep an edge.
+Places of 2,000+ are named towns (in the local language, from features like river, ford,
+hill or sea); 10,000+ are cities. Bigger capitals and urban shares come with states
+(phase 3).
+
 ### Wild plants and animals (worldgen 1.1)
 Each world gets domesticable species with climate ranges and native homelands, blocked
 by oceans and mountains, so not every continent gets every species:
@@ -211,8 +236,9 @@ These raise worldgen's data version, and the simulator's check is updated with t
 - **Saved run:** keyframes (the full state every ~25 years), yearly changes in between,
   the event log, and yearly statistics. Expected size: around 100s of MB per full run.
 - **Replay:** scrub to any year; every map mode works as in the live view.
-- **Dark mode:** the live viewer and replay get the worldgen viewer's dark/light switch
-  (same colours, same remembered choice); graphs and saved maps get a dark style too.
+- **Dark mode:** the live viewer and replay share the worldgen viewer's dark/light switch
+  (same colours, same remembered choice); graphs and saved maps follow it too (or take
+  `--dark` / `--light`).
 - **Chronicle:** a readable history from the event log: foundings, wars, conquests,
   discoveries, schisms, plagues, explorations, collapses, with generated names.
 - **Graphs after a run** (also used for testing):
@@ -296,6 +322,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-21 | Full runs may take hours |
 | 2026-11-21 | Calendar: year 0 is exactly 10,000 BCE; year 10,000 = 1 CE; 2025 CE = year 12,024 |
 | 2026-11-21 | Peopling: island-hopping up to 300 km, plus rare ancient voyages to large empty lands within 1,500 km; remote lands stay empty for later seafarers |
+| 2026-11-21 | Phase 2 built: cultures and language families from depth of settlement; generated languages with sound changes and cognates; farming spreads cultures, assimilation, splits; named towns and cities; the viewer (`watch` live, `replay` saved runs) with map modes and dark mode; dark graphs and maps; entity tables saved with runs. World 31: first town 5475 BCE, first city 3900 BCE (Earth ~3500), ~1,600 cultures in 50 families by 2000 CE. Still low until states arrive (phase 3): largest city at 1 CE ~25,000 (Earth 200,000-2 million), urban share ~2%, world population at 1 CE 88 million |
 | 2026-11-21 | Peopling level is a run option (sparse / some / most / all); dark mode in the worldgen viewer now, in the history viewer and graphs when they're built (phase 2) |
 | 2026-11-21 | Phase 1 built: peopling pre-pass, foragers from plant growth, domestication and spread of farming and herding, growth, migration, famine, drowned coasts; settings in histsim/config.py; maps command. Calibrated on worlds 31 and 22 to Earth's population (10,000-3000 BCE) and number of farming origins |
 | 2026-11-21 | Phase 0 built: worldgen 1.1 (species, minerals, disease, seas, ice-age land, climate history; data version 2) and the simulator skeleton (histsim 0.1: loop, random streams, calendar, environment system, run recording and replay, graphs, CLI) |

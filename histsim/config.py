@@ -44,6 +44,41 @@ class SimConfig:
     spread_rate: float = 0.012          # yearly chance a suitable neighbouring cell takes it up
     tsetse_block: float = 0.5           # tsetse above this keeps cattle and horses out
 
+    # ---------------------------------------------------------- cultures
+    # At year 0: language families and cultures per million km2 of settled land (more
+    # of them, and smaller, where people have lived longest and are most numerous).
+    families_per_mkm2: float = 0.25
+    cultures_per_mkm2: float = 4.0
+    family_min_km: float = 600.0        # family homelands at least this far apart
+    culture_seed_min_km: float = 120.0  # culture homelands at least this far apart
+    # How strongly a culture holds and spreads (x people per km2), by way of life.
+    forager_prestige: float = 1.0
+    herder_prestige: float = 3.0        # mobile, organised, often warlike
+    farmer_prestige: float = 2.0
+    farmers_replace: float = 0.75       # chance farming arriving among foragers brings the farmers' culture
+    assimilation_rate: float = 0.0005   # yearly pull of a much stronger neighbour (x log of strength ratio)
+    cohesion_rate: float = 0.01         # yearly pull on a cell surrounded (3+ sides) by another culture
+    culture_check_years: int = 50       # how often cultures are checked for splits and endings
+    culture_radius_km: float = 400.0    # a culture reaching further than this from its centre may split
+                                        # (twice as far for herders)
+    culture_split_years: float = 500.0  # typical wait before an over-wide culture splits
+    isolation_split_years: float = 1500.0 # typical wait before a cut-off piece becomes its own culture
+    min_culture_cells: int = 6          # smallest cut-off piece that can become a culture
+
+    # ------------------------------------------------------- settlements
+    town_min: float = 2000.0            # people in a place to count as a (named) town
+    town_delay_years: float = 2000.0    # years of farming before towns can start to appear
+    town_ramp_years: float = 3000.0     # ... and before they reach their full potential
+    hinterland_km: float = 160.0        # a central place draws on the land about this far around it
+    urban_share_max: float = 0.15       # most of a dense hinterland's people that live in its central places
+    urban_density_ref: float = 3.0      # hinterland people per km2 for the full urban share
+    central_place_share: float = 0.6    # share of those townspeople in the main place
+    river_site: float = 0.5             # site bonus on a river (counted twice for great rivers)
+    coast_site: float = 0.4             # site bonus on a sea coast
+    incumbency: float = 0.5             # an existing town's advantage over a new site
+    settlement_years: float = 150.0     # how quickly places grow or shrink toward their potential
+    largest_city_event_years: int = 300  # least years between "largest city" events
+
     # --------------------------------------------------------- migration
     migration_rate: float = 0.08        # yearly share of crowding pressure that moves to neighbours
     famine_halving_years: float = 10.0  # how fast people beyond what the land can feed die off
