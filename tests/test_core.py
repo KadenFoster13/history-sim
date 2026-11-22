@@ -76,7 +76,9 @@ class RecordingTests(unittest.TestCase):
 
         def remember(state):
             if state.year in (0, 37, 50, 99, 149):
-                live[state.year] = {k: v.copy() for k, v in state.cells.items()}
+                live[state.year] = {k: v.copy() for k, v in state.cells.items()
+                                    if state.record_modes.get(k) != "none"}
+                self.modes = dict(state.record_modes)
 
         with tempfile.TemporaryDirectory() as out:
             run_history(2, 150, out=out, observer=remember)
@@ -84,6 +86,8 @@ class RecordingTests(unittest.TestCase):
             for year, layers in live.items():
                 replay = run.layers_at(year)
                 for name, arr in layers.items():
+                    if self.modes[name] == "snapshot" and year % 50:
+                        continue  # snapshot-only layers (population) exist at snapshot years
                     np.testing.assert_array_equal(replay[name], arr, err_msg=f"{name} at year {year}")
             stats = run.stats()
             self.assertEqual(len(stats["year"]), 150)

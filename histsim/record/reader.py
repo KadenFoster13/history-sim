@@ -54,13 +54,23 @@ class RunReader:
         return out
 
     def layers_at(self, year, names=None):
-        """Every per-cell layer (or just `names`) as it was at the end of `year`."""
+        """Every recorded layer (or just `names`) as it was at the end of `year`.
+
+        Layers saved only in snapshots (like population) come from the latest snapshot
+        at or before `year`; see `snapshot_year()`.
+        """
         if not self._keyframes or year < self._keyframes[0]:
             raise ValueError(f"no recorded state for year {year}")
-        k = self._keyframes[bisect.bisect_right(self._keyframes, year) - 1]
+        k = self.snapshot_year(year)
         with np.load(os.path.join(self.dir, "keyframes", f"k_{k:07d}.npz")) as data:
             layers = {name: data[name].ravel().copy() for name in data.files
                       if names is None or name in names}
+        statics_path = os.path.join(self.dir, "statics.npz")
+        if os.path.exists(statics_path):
+            with np.load(statics_path) as data:
+                for name in data.files:
+                    if names is None or name in names:
+                        layers[name] = data[name].ravel().copy()
         for chunk in self._chunks:
             if chunk + self.meta["chunk_years"] <= k or chunk > year:
                 continue
@@ -72,6 +82,10 @@ class RunReader:
                 use = (years > k) & (years <= year)   # rows are already in year order
                 flat[cells[use]] = values[use]
         return {name: flat.reshape(self.shape) for name, flat in layers.items()}
+
+    def snapshot_year(self, year):
+        """The latest full snapshot at or before `year`."""
+        return self._keyframes[bisect.bisect_right(self._keyframes, year) - 1]
 
     def _chunk(self, start):
         if start not in self._chunk_cache:

@@ -2,9 +2,11 @@
 
 A run is a folder:
     meta.json            seeds, versions, settings, years covered
-    keyframes/k_<year>.npz   every per-cell layer in full, every `keyframe_every` years
-    changes/c_<year>.npz     for each layer: (year, cell, new value) for every cell that
-                             changed, one file per `chunk_years` years
+    statics.npz          layers that never change (saved once)
+    keyframes/k_<year>.npz   every recorded layer in full, every `keyframe_every` years
+    changes/c_<year>.npz     for "changes" layers: (year, cell, new value) for every cell
+                             that changed, one file per `chunk_years` years
+                             ("snapshot" layers, like population, are only in keyframes)
     events.jsonl         the chronicle: one event per line
     stats.csv            one row of statistics per year
 
@@ -55,6 +57,7 @@ class RunRecorder:
             self._keyframe(state)
         else:
             self._record_changes(state)
+        self._save_statics(state)
         for event in state.events:
             self._events.write(json.dumps(event, default=_jsonable) + "\n")
         row = {"year": year, **state.stats}
@@ -64,13 +67,26 @@ class RunRecorder:
         self._stats_rows.append(row)
         self.last_year = year
 
+    def _modes(self, state, mode):
+        return {name: arr for name, arr in state.cells.items()
+                if state.record_modes.get(name, "changes") == mode}
+
+    def _save_statics(self, state):
+        statics = self._modes(state, "static")
+        new = {k: v for k, v in statics.items() if k not in getattr(self, "_statics_saved", set())}
+        if new:
+            self._statics_saved = getattr(self, "_statics_saved", set()) | set(new)
+            path = os.path.join(self.dir, "statics.npz")
+            existing = dict(np.load(path)) if os.path.exists(path) else {}
+            np.savez_compressed(path, **existing, **{k: statics[k] for k in self._statics_saved})
+
     def _keyframe(self, state):
-        layers = {name: arr for name, arr in state.cells.items()}
+        layers = {**self._modes(state, "changes"), **self._modes(state, "snapshot")}
         np.savez_compressed(os.path.join(self.dir, "keyframes", f"k_{state.year:07d}.npz"), **layers)
-        self._previous = {name: arr.ravel().copy() for name, arr in layers.items()}
+        self._previous = {name: arr.ravel().copy() for name, arr in self._modes(state, "changes").items()}
 
     def _record_changes(self, state):
-        for name, arr in state.cells.items():
+        for name, arr in self._modes(state, "changes").items():
             flat = arr.ravel()
             before = self._previous.get(name)
             if before is None:  # a layer that appeared after the last keyframe
@@ -119,7 +135,8 @@ class RunRecorder:
             "keyframe_every": self.keyframe_every,
             "chunk_years": self.chunk_years,
             "shape": list(state.shape),
-            "layers": {name: str(arr.dtype) for name, arr in state.cells.items()},
+            "layers": {name: {"dtype": str(arr.dtype), "record": state.record_modes.get(name, "changes")}
+                       for name, arr in state.cells.items() if state.record_modes.get(name) != "none"},
             "finished": finished,
             "seconds": round(time.time() - self._t0, 1),
             "settings": self.settings,

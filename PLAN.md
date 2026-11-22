@@ -102,13 +102,19 @@ A quick setup, not a year-by-year simulation of the Old Stone Age:
 2. **Ice-age world:** sea level is lowered by about 60-120 m during the pass, opening
    land bridges across shallow seas; ice sheets block the far north and south.
 3. **Spread:** a travel-time calculation from the origin across land (easy in
-   grassland and open woodland, slow in jungle, desert, mountains and tundra) and across
-   short sea crossings of up to ~100-150 km (enough for an Australia-like crossing).
-4. **Result at year 0:** hunter-gatherer bands everywhere that was reachable, at
-   densities set by biome (roughly 0.01-0.1 people per km2; ~4 million people in total
-   on an Earth-like world). Remote islands and ice-covered land start empty, waiting for
-   later seafarers.
-5. **Depth of settlement:** how long ago each region was reached sets its starting
+   grassland and open woodland, slow in jungle, desert, mountains and tundra) and
+   island-hopping across open water up to 300 km (long hops much later than short ones).
+4. **Ancient voyages:** a large landmass still empty but within 1,500 km of settled land
+   (`ancient_voyage_km`) gets founders on its nearest coast, later the longer the
+   crossing; new lands can launch further voyages. Arrival dates are a schedule: lands
+   reached after year 0 get their first bands when that year comes round.
+5. **Result at year 0:** hunter-gatherer bands everywhere that was reachable, at
+   densities set by plant growth. Truly remote lands, small islands and ice-covered land
+   start empty, waiting for later seafarers (in a survey of 40 worlds, about 7 in 10
+   still have at least one empty large landmass at year 0). For different tastes,
+   `--peopling sparse|some|most|all` (PEOPLING_LEVELS in config.py) gives emptier or
+   fuller worlds; later this becomes a choice in the viewer's new-run screen.
+6. **Depth of settlement:** how long ago each region was reached sets its starting
    cultural and language diversity (older regions are more diverse).
 
 ### Wild plants and animals (worldgen 1.1)
@@ -205,6 +211,8 @@ These raise worldgen's data version, and the simulator's check is updated with t
 - **Saved run:** keyframes (the full state every ~25 years), yearly changes in between,
   the event log, and yearly statistics. Expected size: around 100s of MB per full run.
 - **Replay:** scrub to any year; every map mode works as in the live view.
+- **Dark mode:** the live viewer and replay get the worldgen viewer's dark/light switch
+  (same colours, same remembered choice); graphs and saved maps get a dark style too.
 - **Chronicle:** a readable history from the event log: foundings, wars, conquests,
   discoveries, schisms, plagues, explorations, collapses, with generated names.
 - **Graphs after a run** (also used for testing):
@@ -287,4 +295,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-21 | Generated languages per culture, drifting and splitting |
 | 2026-11-21 | Full runs may take hours |
 | 2026-11-21 | Calendar: year 0 is exactly 10,000 BCE; year 10,000 = 1 CE; 2025 CE = year 12,024 |
+| 2026-11-21 | Peopling: island-hopping up to 300 km, plus rare ancient voyages to large empty lands within 1,500 km; remote lands stay empty for later seafarers |
+| 2026-11-21 | Peopling level is a run option (sparse / some / most / all); dark mode in the worldgen viewer now, in the history viewer and graphs when they're built (phase 2) |
+| 2026-11-21 | Phase 1 built: peopling pre-pass, foragers from plant growth, domestication and spread of farming and herding, growth, migration, famine, drowned coasts; settings in histsim/config.py; maps command. Calibrated on worlds 31 and 22 to Earth's population (10,000-3000 BCE) and number of farming origins |
 | 2026-11-21 | Phase 0 built: worldgen 1.1 (species, minerals, disease, seas, ice-age land, climate history; data version 2) and the simulator skeleton (histsim 0.1: loop, random streams, calendar, environment system, run recording and replay, graphs, CLI) |

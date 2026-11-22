@@ -8,7 +8,20 @@ from ..core.calendar import real_year
 from ..record.reader import RunReader
 
 # Nicer titles for known statistics; anything else is shown under its own name.
+LOG_SCALE = {"world_population", "foragers", "herders", "farmers"}
 TITLES = {
+    "world_population": "World population (Earth's history shown as grey bars)",
+    "foragers": "Foragers (hunter-gatherers)",
+    "herders": "Herders",
+    "farmers": "Farmers",
+    "inhabited_land_share": "Share of land with people",
+    "famine_deaths_per_year": "Famine deaths per year",
+    "drowned_per_year": "People displaced by rising seas per year",
+    "domestications": "Species tamed (all events)",
+    "farming_origins": "Independent beginnings of farming",
+    "species_tamed": "Different species tamed",
+    "farmed_land_share": "Share of land farmed",
+    "herded_or_farmed_land_share": "Share of land farmed or herded",
     "global_temperature_c": "Global temperature change (C)",
     "sea_level_m": "Sea level (m)",
     "exposed_shelf_share": "Ice-age land still above sea (share of today's land)",
@@ -52,6 +65,15 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0):
             kernel = np.ones(smooth_years) / smooth_years
             y = np.convolve(np.nan_to_num(y), kernel, mode="same")
         ax.plot(x, y, linewidth=1)
+        if name in LOG_SCALE and np.nanmax(y) > 0:
+            ax.set_yscale("log")
+        if name == "world_population":
+            from ..config import POPULATION_TARGETS
+            for year, low, typical, high in POPULATION_TARGETS:
+                rx = real_year(year)
+                if x.min() <= rx <= x.max():
+                    ax.plot([rx, rx], [low, high], color="0.6", linewidth=4, alpha=0.6)
+                    ax.plot(rx, typical, "o", color="0.4", markersize=4)
         ax.set_title(TITLES.get(name, name.replace("_", " ")), fontsize=10)
         ax.grid(alpha=0.3)
         _format_axis(ax)
@@ -59,7 +81,7 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0):
         ax.set_visible(False)
     meta = run.meta
     fig.suptitle(f"World {meta['world_seed']}, history seed {meta['sim_seed']}", fontsize=12)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.4 / (2.6 * rows)))   # leave room for the title
     out = out or os.path.join(run_dir, "graphs.png")
     fig.savefig(out, dpi=100)
     return out

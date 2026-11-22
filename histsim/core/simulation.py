@@ -28,9 +28,11 @@ class System:
 
 
 class Simulation:
-    def __init__(self, world, seed=0, start_year=0, systems=()):
+    def __init__(self, world, seed=0, start_year=0, systems=(), config=None):
+        from ..config import DEFAULT
         self.start_year = start_year
-        self.state = SimState(world=world, seed=seed, year=start_year, rng=RngStreams(seed))
+        self.state = SimState(world=world, seed=seed, year=start_year, rng=RngStreams(seed),
+                              config=config or DEFAULT)
         self.systems = list(systems)
         self.observers = []
         self._ready = False
@@ -49,8 +51,7 @@ class Simulation:
         if not self._ready:
             self._setup()
         state = self.state
-        state.stats = {}
-        state.events = []
+        state.events = []   # statistics persist: systems that run every few years keep their last values
         for system in self.systems:
             if system.due(state.year, self.start_year):
                 system.step(state)
