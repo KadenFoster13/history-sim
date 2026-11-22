@@ -250,6 +250,25 @@ These raise worldgen's data version, and the simulator's check is updated with t
   - wars per century, battle deaths, largest empire size, empire lifespans
   - trade volume, famine and epidemic deaths
 - **Comparison view:** several runs or seeds side by side.
+- **Map seam:** the viewer opens with the map cut where it crosses the least land (like
+  world maps cut between Alaska and Siberia); drag sideways to turn it, `C` to re-cut.
+
+### Later: a new-run screen (noted 2026-11-22)
+Open the simulator and set up a history before starting, instead of command-line flags:
+- **Choose a world:** browse world seeds with a very low-resolution preview of each
+  (fast, so many can be looked through), type a seed, or pick at random; only the chosen
+  world is generated at full detail.
+- **History seed:** type one or randomise it (same world + same history seed = same
+  history; a new history seed plays out a different history on the same map).
+- **Other settings:** how much of the world is peopled at the start (`--peopling`),
+  start and end years, whether to save the run, and later anything else worth exposing
+  from config.py.
+
+### Later: a more game-like interface (noted 2026-11-22)
+The current viewer is a working tool built from plain matplotlib widgets. When the
+player phase (phase 9) comes, the whole interface should be redesigned to feel like a
+game: proper menus and screens, styled panels, smoother map interaction, tooltips and
+event pop-ups. Until then, function over looks.
 
 ## 9. Checking it against real history
 

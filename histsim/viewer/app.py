@@ -11,6 +11,8 @@ Controls
   Map buttons on the right        people, density, cultures, language families, background only, arrival
   Background buttons              draw maps over terrain, biomes or plain white (remembered)
   Scroll to zoom around the cursor, drag to move, R to reset the view
+  Drag sideways to turn the map (it wraps east-west); C cuts it where it crosses the
+    least land (done automatically at the start, like maps cut between Alaska and Siberia)
   Dark / Light (or D)             the same remembered setting as the world viewer
   S                               save the current view as a PNG in renders/
   Hover over the map              what is there: people, way of life, culture, language, town
@@ -169,6 +171,7 @@ class HistoryViewer:
         self.towns = self.ax.scatter([], [], s=[], c="white", edgecolors="black", linewidths=0.6, zorder=3)
         h, w = world.ocean.shape
         self.full_view = (-0.5, w - 0.5, h - 0.5, -0.5)
+        self.offset = best_seam(world)      # map column shown at the left edge
         self._build_controls()
         self._build_side_panel()
         self._capture_sizes()
@@ -265,9 +268,8 @@ class HistoryViewer:
         draw = MODES[self.mode]
         img = (base_map(self.world, self.background) if draw is None
                else draw(self.world, layers, tables, background=self.background))
-        self.image.set_data(img)
-        self._draw_towns(layers, tables)
-        self._draw_culture_labels(layers, tables)
+        self._img, self._layers, self._tables = img, layers, tables
+        self._draw_map()
         stats = src.stats()
         pop = float(stats.get("world_population", 0))
         self.ax.set_title(f"{self.title}   |   {label(src.year)}   |   {_count(pop)} people",
@@ -288,6 +290,22 @@ class HistoryViewer:
             self._slider_busy = False
         self.fig.canvas.draw_idle()
 
+    def _draw_map(self):
+        """The map picture and everything on it, turned to the current offset."""
+        self.image.set_data(np.roll(self._img, -self.offset, axis=1))
+        self._draw_towns(self._layers, self._tables)
+        self._draw_culture_labels(self._layers, self._tables)
+
+    def _x(self, col):
+        """Where a map column appears on screen with the map turned by `offset`."""
+        return (np.asarray(col) - self.offset) % self.world.ocean.shape[1]
+
+    def recut(self):
+        """Cut the map where it crosses the least land."""
+        self.offset = best_seam(self.world)
+        self._draw_map()
+        self.fig.canvas.draw_idle()
+
     def _draw_towns(self, layers, tables):
         for t in self._labels:
             t.remove()
@@ -297,8 +315,9 @@ class HistoryViewer:
         if size is None:
             self.towns.set_offsets(np.empty((0, 2)))
             return
-        rows, cols = np.nonzero(size >= TOWN_MIN)
-        s = size[rows, cols]
+        rows, map_cols = np.nonzero(size >= TOWN_MIN)
+        s = size[rows, map_cols]
+        cols = self._x(map_cols)
         self.towns.set_offsets(np.column_stack([cols, rows]) if len(rows) else np.empty((0, 2)))
         self.towns.set_sizes(6 + 14 * np.log10(s / TOWN_MIN + 1) ** 2)
         ids = layers.get("settlement_id")
@@ -310,7 +329,7 @@ class HistoryViewer:
             r, c = rows[k], cols[k]
             if not self._room(c, r):
                 continue           # keep labels from piling up
-            sid = int(ids[r, c])
+            sid = int(ids[r, map_cols[k]])
             if 0 < sid < len(places) and places[sid]:
                 self._placed.append((c, r))
                 self._labels.append(self.ax.annotate(
@@ -336,7 +355,7 @@ class HistoryViewer:
         cx = np.bincount(flat, weights=weight * np.cos(angle), minlength=n)
         cy = np.bincount(flat, weights=weight * np.sin(angle), minlength=n)
         cr = np.bincount(flat, weights=weight * rows, minlength=n) / np.maximum(people, 1e-9)
-        ccol = (np.arctan2(cy, cx) % (2 * np.pi)) / (2 * np.pi) * w
+        ccol = self._x((np.arctan2(cy, cx) % (2 * np.pi)) / (2 * np.pi) * w)
         if self.mode == "Language families":
             fam = {}
             for cid in np.flatnonzero(people[1:] > 1) + 1:
@@ -647,19 +666,24 @@ class HistoryViewer:
 
     def _on_press(self, event):
         if event.inaxes is self.ax and event.button == 1:
-            self.drag = (event.x, event.y, self.ax.get_xlim(), self.ax.get_ylim())
+            self.drag = (event.x, event.y, self.offset, self.ax.get_xlim(), self.ax.get_ylim())
 
     def _on_release(self, event):
         self.drag = None
 
     def _on_motion(self, event):
+        """Dragging turns the map sideways (it wraps) and moves it up and down when zoomed."""
         if self.drag is None:
             return
-        x, y, (x0, x1), (y0, y1) = self.drag
+        x, y, offset, (x0, x1), (y0, y1) = self.drag
         bbox = self.ax.get_window_extent()
         dx = (event.x - x) / bbox.width * (x1 - x0)
         dy = (event.y - y) / bbox.height * (y0 - y1)
-        self._set_view(x0 - dx, x1 - dx, y0 + dy, y1 + dy)
+        new = int(round(offset - dx)) % self.world.ocean.shape[1]
+        if new != self.offset:
+            self.offset = new
+            self._draw_map()
+        self._set_view(x0, x1, y0 + dy, y1 + dy)
 
     def reset_view(self):
         self._set_view(*self.full_view)
@@ -677,6 +701,8 @@ class HistoryViewer:
             self.change_speed(-1)
         elif k in ("r", "R"):
             self.reset_view()
+        elif k in ("c", "C"):
+            self.recut()
         elif k in ("d", "D"):
             self.toggle_dark()
         elif k in ("s", "S"):
@@ -691,7 +717,7 @@ class HistoryViewer:
     # ------------------------------------------------------------------ hover
     def _describe(self, x, y):
         h, w = self.world.ocean.shape
-        c, r = int(round(x)) % w, int(round(y))
+        c, r = (int(round(x)) + self.offset) % w, int(round(y))
         if not 0 <= r < h:
             return ""
         lat, lon = float(self.world.grid.lat[r, c]), float(self.world.grid.lon[r, c])
@@ -721,6 +747,24 @@ class HistoryViewer:
 
 
 # ------------------------------------------------------------------ helpers
+def best_seam(world):
+    """The map column to cut the map at (shown at the left edge): the one whose
+    surroundings cross the least land, so continents aren't split across the edges."""
+    land = (~world.ocean & ~world.lake) * np.cos(np.radians(world.grid.lat))
+    per_col = land.sum(axis=0)
+    w = per_col.size
+    half = max(1, w // 60)                      # look about 3 degrees either side
+    window = sum(np.roll(per_col, k) for k in range(-half, half + 1))
+    best = np.flatnonzero(window <= window.min() + 1e-9)
+    if len(best) > 1:                           # a wide empty ocean: cut in its middle
+        runs = np.split(best, np.flatnonzero(np.diff(best) > 1) + 1)
+        if len(runs) > 1 and runs[0][0] == 0 and runs[-1][-1] == w - 1:
+            runs = [np.concatenate([runs[-1], runs[0]])] + runs[1:-1]    # a run across the edge
+        longest = max(runs, key=len)
+        return int(longest[len(longest) // 2]) % w
+    return int(best[0])
+
+
 def _count(n):
     n = float(n)
     if n >= 1e9:

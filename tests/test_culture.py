@@ -116,6 +116,11 @@ class RecordingTests(unittest.TestCase):
                 viewer._on_mode(mode)
             for bg in ("Biomes", "White", "Terrain"):
                 viewer._on_background(bg)
+            viewer.recut()
+            from histsim.viewer.app import best_seam
+            land = ~WORLD.ocean & ~WORLD.lake
+            cut = best_seam(WORLD)
+            self.assertLessEqual(land[:, cut].sum(), np.median(land.sum(axis=0)))   # cuts through little land
             viewer.toggle_dark()
             self.assertTrue(os.path.exists(viewer.save(os.path.join(tmp, "v.png"))))
             self.assertIn("N", viewer._describe(200, 100) + "N")

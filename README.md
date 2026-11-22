@@ -73,7 +73,8 @@ and cities with their names, the largest peoples and towns, and recent events.
 | Year slider (replay) | Jump to any year |
 | Map buttons | People, density, cultures, language families, background only, arrival |
 | Background buttons | Draw the maps over terrain, biomes or plain white (remembered) |
-| Scroll, drag, `R` | Zoom around the cursor, move, reset |
+| Scroll, drag, `R` | Zoom around the cursor, move (sideways turns the map; it wraps), reset |
+| `C` | Cut the map where it crosses the least land (done automatically at the start) |
 | Dark / Light, `D` | Dark mode (the same remembered setting as the world viewer) |
 | `S` | Save the view as a PNG in `renders/` |
 | Hover | People, way of life, culture and language family, town |
