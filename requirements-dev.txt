@@ -1,0 +1,4 @@
+# For working on the generator and the simulator side by side: links the generator
+# from its own project folder next to this one (C:\Users\kaden\world-generator), so
+# changes there apply here immediately. [fast] adds numba for faster river routing.
+-e ../world-generator[fast]
