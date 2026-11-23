@@ -34,6 +34,14 @@ TITLES = {
     "cities": "Cities (10,000+ people)",
     "largest_settlement": "Largest town or city (Earth's shown as grey bars)",
     "urban_share": "Share of people in towns and cities",
+    "states": "States",
+    "kingdoms": "Kingdoms and empires",
+    "empires": "Empires",
+    "people_in_states": "Share of people living in states",
+    "largest_state_share": "Largest state's share of world population",
+    "wars": "Wars being fought",
+    "wars_started": "Wars so far",
+    "war_deaths_per_year": "Deaths in conquest per year",
 }
 
 # Earth, for the largest place: (simulation year, low, typical, high).

@@ -10,6 +10,10 @@ from dataclasses import dataclass, replace
 class SimConfig:
     # ---------------------------------------------------------------- timing
     step_years: int = 5                 # population and farming update every this many years
+    # The rules were tuned on 800-px worlds (cells ~50 km across). On other map sizes every
+    # rule that works cell by cell is rescaled to give the same speeds in km per year and
+    # the same sizes in km2 (see systems/geo.py: cell_scale).
+    reference_width: int = 800          # map width (px) the rules were tuned on
 
     # ------------------------------------------------- peopling (before year 0)
     out_of_homeland_year: int = -60_000 # when people first leave their homeland (simulation years)
@@ -42,6 +46,14 @@ class SimConfig:
     holocene_start_year: int = 300      # before this the climate is too unstable for farming
     # Spread of farming and herding to neighbouring cells (about 1 km per year historically).
     spread_rate: float = 0.012          # yearly chance a suitable neighbouring cell takes it up
+    river_corridor: float = 6.0         # ... this much more (x) along great rivers
+    coast_corridor: float = 3.0         # ... and along coasts
+    pioneer_rate: float = 0.001         # yearly chance per frontier cell on a river or coast that
+    pioneer_km: tuple = (50, 300)       #   pioneers settle good land this far ahead
+    farming_advantage: float = 2.5      # foragers take up farming readily once it would feed this many
+    frontier_floor: float = 0.04        #   times more people than foraging (less: this share of the pace)
+    flood_yield: float = 1.0            # floodplain harvests up to (1 + this) times others (yearly silt)
+    canal_irrigation: float = 0.0       # how far canals water irrigable land, 0..1 (technology, phase 4)
     tsetse_block: float = 0.5           # tsetse above this keeps cattle and horses out
 
     # ---------------------------------------------------------- cultures
@@ -78,6 +90,70 @@ class SimConfig:
     incumbency: float = 0.5             # an existing town's advantage over a new site
     settlement_years: float = 150.0     # how quickly places grow or shrink toward their potential
     largest_city_event_years: int = 300  # least years between "largest city" events
+
+    # ------------------------------------------------------------ states
+    state_town_min: float = 2000.0      # a town this big may become a chiefdom's seat
+    state_formation_rate: float = 0.004 # yearly chance per stateless town (more for bigger towns)
+    state_delay_years: float = 4000.0   # ... once farming there is this old (chiefs need surplus, time)
+    circumscription_states: float = 4.0 # hemmed-in farmland (by desert, mountains, sea) forms states (1 + this)x as often
+    circumscription_sooner: float = 0.4 # ... and up to this share sooner
+    circumscription_km: float = 200.0   # how far around a cell counts as its surroundings
+    circumscription_arable: float = 0.35  # farmland at least this good counts as good
+    herder_state_density: float = 1.0   # herders per km2 for a confederation to form among them
+    herder_state_rate: float = 0.01     # yearly chance one forms somewhere, where dense enough
+    herder_military: float = 1.5        # herders with horses count this much extra in war
+    reach_km: float = 400.0             # how far a state's grip reaches (km of easy travel; grows
+                                        # with its size; rough country counts as longer)
+    reach_growth: float = 2.0           # reach x (1 + this x log10(1 + people / 100,000))
+    chiefdom_reach: float = 0.5         # chiefdoms reach only this share as far
+    absorb_rate: float = 0.03           # yearly chance a strong state takes in a stateless village
+    absorb_resistance: float = 1.6      # how hard stateless people resist (x square root of people per
+                                        # 2,500 km2 at their density)
+    absorb_foragers: float = 0.15       # ... foragers and herders are harder to take in than farmers
+    absorb_herders: float = 0.3
+    cohesion_gain: float = 0.02         # cohesion growth on frontiers with other peoples (per year)
+    cohesion_loss: float = 0.004        # cohesion fading in a state's quiet core (per year)
+    overextension_people: float = 10_000_000.0  # ... twice as fast for a state this big, 3x at twice that
+    decision_years: int = 10            # rulers weigh war and alliances this often
+    war_interval_years: float = 50.0    # typical wait before a clearly stronger state attacks
+    war_margin: float = 0.2             # how much stronger (log ratio) a state must feel to attack
+    rivalry: float = 0.06               # ... though neighbours of similar strength fight now and then
+    max_wars_per_state: int = 2
+    min_war_people: float = 20_000.0    # smaller states don't start wars
+    war_edge: float = 1.5               # how much strength counts along a front (higher: big states win more)
+    war_rate: float = 0.12              # yearly chance a front cell changes hands (even fight: half)
+    war_years: float = 18.0             # typical length of a war
+    truce_years: tuple = (15, 50)       # truce after a war, years (random in this range)
+    conquest_loss: float = 0.05         # share of a cell's people lost when it is conquered
+    hill_defence: float = 0.6           # defence bonuses (log strength) for rough ground,
+    river_defence: float = 0.4          # ... a great river,
+    town_defence: float = 0.3           # ... walls (per doubling of town size),
+    capital_defence: float = 1.0        # ... and the capital
+    submit_ratio: float = 6.0           # a neighbour this much weaker (along the border and overall) ...
+    submit_chance: float = 0.15         # ... may submit without war (chance each time rulers decide)
+    alliance_threat: float = 3.0        # a neighbour this many times stronger makes states seek allies
+    alliance_chance: float = 0.3        # chance a threatened state forms an alliance when it decides
+    enclave_absorb: float = 0.5         # chance per check an enclave joins the state around it
+    statelet_absorb: float = 0.3        # ... and a one- or two-cell statelet its strongest neighbour
+    admin_years: int = 25               # how often distances, rebellions and kinds are checked
+    related_gap: float = 0.4            # restlessness of subjects of a related culture
+    foreign_gap: float = 0.6            # ... and of an unrelated one
+    secession_threshold: float = 1.9    # restlessness (distance / reach + culture gap, x weakness)
+                                        # above which a region may break away
+    rebellion_years: float = 500.0
+    collapse_cohesion: float = 0.12     # a big state whose cohesion falls below this falls apart
+    collapse_min_cells: int = 30        # ... if it has at least this many cells
+    collapse_cells_per_successor: float = 30.0   # roughly one successor state per this many cells (2-8)     # typical wait before a restless region breaks away
+    min_rebel_cells: int = 4            # smallest region that can break away
+    kingdom_people: float = 150_000.0   # people for a state to count as a kingdom
+    kingdom_capital_min: float = 10_000.0  # ... with a capital city at least this big (or twice the people)
+    empire_people: float = 3_000_000.0  # ... and as an empire (or half as many, mostly of other peoples)
+    largest_state_event_years: int = 300
+    notable_share: float = 0.04         # chronicle wars and rebellions of states with this share of the
+                                        # world's people (and at least 300,000)
+    capital_share: float = 0.015        # share of a state's people drawn to its capital
+    state_food_bonus: float = 0.25      # farmland in a state feeds this much more (order, storage, works)
+    ruling_prestige: float = 3.0        # the rulers' culture is this much stronger in its state
 
     # --------------------------------------------------------- migration
     migration_rate: float = 0.08        # yearly share of crowding pressure that moves to neighbours

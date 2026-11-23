@@ -80,6 +80,56 @@ class DynamicsTests(unittest.TestCase):
         dens = pop / area
         self.assertGreater(np.median(dens[mode == FARMING]), np.median(dens[mode == FORAGING]))
 
+    def test_river_water_and_frontiers(self):
+        sim = start()
+        farming = sim.state.tables["farming"]
+        crops = farming.is_crop
+        # Floodplains: crops grow on the flood where rain alone wouldn't do.
+        flood = WORLD.floodplain >= 0.4
+        self.assertTrue((farming.suit[crops] >= farming.suit_dry[crops] - 1e-6).all())
+        if flood.any():
+            gain = farming.suit[crops][:, flood].max(axis=0) - farming.suit_dry[crops][:, flood].max(axis=0)
+            self.assertGreaterEqual(gain.max(), 0)
+        dry_river = flood & (WORLD.precip_mm < 300)
+        if dry_river.any():
+            self.assertGreater(farming.suit[crops][:, dry_river].max(), 0.3)
+        # Canals (a later technology) water more land.
+        before = farming.suit[crops].sum()
+        farming._apply_water(DEFAULT.copy(canal_irrigation=1.0))
+        self.assertGreater(farming.suit[crops].sum(), before)
+        farming._apply_water(DEFAULT)
+        # Foragers who live well hold out against farming; poor ones take it up readily.
+        i = int(np.flatnonzero(crops)[0])
+        none = np.zeros(LAND.shape, bool)
+        rich = farming._welcome(DEFAULT, i, np.ones(LAND.shape, np.float32), np.full(LAND.shape, 1e3), none)
+        poor = farming._welcome(DEFAULT, i, np.ones(LAND.shape, np.float32), np.full(LAND.shape, 1e-3), none)
+        good = farming.suit[i] > 0.5
+        self.assertTrue(np.allclose(rich[good], DEFAULT.frontier_floor))
+        self.assertTrue(np.allclose(poor[good], 1.0))
+
+    def test_rules_scale_with_cell_size(self):
+        from histsim.systems.geo import cell_scale, cells_for
+        scale = cell_scale(WORLD, DEFAULT)              # a 400-px world: cells twice as wide
+        self.assertAlmostEqual(scale, 2.0)
+        self.assertEqual(cells_for(8, scale), 2)        # 8 cells of 50 km = 2 of 100 km
+        self.assertEqual(cells_for(8, 0.5), 32)
+        self.assertEqual(cells_for(2, scale), 1)        # never below one cell
+        # River and coast bands keep their width in km: wider on fine maps, part of a cell on coarse.
+        from histsim.systems.geo import band
+        line = np.zeros((5, 5), bool)
+        line[2] = True
+        self.assertEqual(int(band(line, 0.5).sum()), 15)
+        self.assertTrue(np.allclose(band(line, 2.0)[2], 0.5))
+        self.assertIs(band(line, 1.0), line)
+        # Migration stays conservative with the extra rounds on finer maps.
+        cfg = DEFAULT.copy(forager_growth=0.0, farmer_growth=0.0, famine_halving_years=1e12,
+                           domestication_rate=0.0, reference_width=1600)
+        sim = Simulation(WORLD, seed=1, start_year=8000, systems=default_systems(), config=cfg)
+        sim._setup()
+        before = sim.state.cells["population"].sum()
+        sim.run(8050)
+        self.assertAlmostEqual(sim.state.cells["population"].sum() / before, 1.0, places=3)
+
     def test_no_farming_before_holocene(self):
         sim = start(DEFAULT.copy(domestication_rate=1e-3))
         sim.run(DEFAULT.holocene_start_year)

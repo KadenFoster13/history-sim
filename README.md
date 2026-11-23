@@ -8,7 +8,7 @@ A historical simulator built on worlds from the separate
 - **worldgen**: everything physical (terrain, climate, biomes, lakes, rivers).
 - **history-sim**: everything human (people, settlements, borders, crossings, ports, history).
 
-The simulator is written against **worldgen 1.2.0**: the world data it reads is listed
+The simulator is written against **worldgen 1.5.0**: the world data it reads is listed
 in worldgen's DATA.md, and `main.py` checks the data version when it starts.
 
 ## Setup
@@ -21,7 +21,7 @@ venv\Scripts\activate            (Windows)   or   source venv/bin/activate   (ma
 pip install -r requirements.txt
 ```
 
-This installs worldgen 1.2.0 straight from GitHub.
+This installs worldgen 1.5.0 straight from GitHub.
 
 ### Working on both projects at once
 
@@ -47,13 +47,20 @@ python -m histsim replay runs/world31_seed1        replay a saved run in the vie
 the same pair always gives the same history. Years count from year 0 (10,000 BCE), so
 year 10,000 is 1 CE and `--until 12000` (the default) runs to 2000 CE.
 
+`--width` sets the world map's size (800 px by default, cells ~50 km across). History
+is simulated on the map's cells, and the rules are scaled to cell size so other widths
+give comparable histories (not yet exactly: coarser maps still come out with somewhat
+more, smaller states and more wars; see PLAN.md, "Map size"). A different width is always a different
+history, and 1600 px takes about four to five times as long. To see detail without
+changing the run, use the viewer's Enhance.
+
 `--peopling sparse|some|most|all` sets how much of the world people have reached by
 10,000 BCE: `sparse` (short sea hops only, many empty lands), `some` (the default: rare
 ancient voyages reach large lands within 1,500 km), `most` (voyages up to 2,500 km) or
 `all` (every sizeable landmass). The levels are defined in `histsim/config.py`.
 
 `maps --kind` draws `people` (how they live), `density`, `cultures`, `families`
-(language families) or `arrival` (when people first got there); towns show as dots.
+(language families), `states` (war fronts in red) or `arrival` (when people first got there); towns show as dots.
 `graphs` and `maps` take `--dark` or `--light` (default: the viewers' remembered setting);
 `maps --background terrain|biomes|white` picks what the maps are drawn over (default:
 the history viewer's last choice). Farmers are crimson, herders orange, foragers gold.
@@ -71,10 +78,11 @@ and cities with their names, the largest peoples and towns, and recent events.
 | Slower / Faster, `-` / `+` | Years per frame (1 to 500) |
 | Step, `Right` | One jump forward |
 | Year slider (replay) | Jump to any year |
-| Map buttons | People, density, cultures, language families, background only, arrival |
+| Map buttons | People, density, cultures, language families, states (war fronts in red), background only, arrival |
 | Background buttons | Draw the maps over terrain, biomes or plain white (remembered) |
 | Scroll, drag, `R` | Zoom around the cursor, move (sideways turns the map; it wraps), reset |
 | `C` | Cut the map where it crosses the least land (done automatically at the start) |
+| Enhance, `E` | Redraw the area in view 2-8x finer with the world generator's detailed coasts and rivers (zoom in first; takes a few seconds). Clear or `Esc` goes back |
 | Dark / Light, `D` | Dark mode (the same remembered setting as the world viewer) |
 | `S` | Save the view as a PNG in `renders/` |
 | Hover | People, way of life, culture and language family, town |
@@ -89,8 +97,9 @@ See [PLAN.md](PLAN.md) for the design and the phases. In short:
 |---|---|
 | `histsim/core` | The world state, the yearly loop, random streams, the calendar |
 | `histsim/config.py` | Every tunable setting for the simulator, with comments |
-| `histsim/systems` | One module per force of history: environment, population (and the peopling of the world before year 0), farming, cultures, settlements |
+| `histsim/systems` | One module per force of history: environment, population (and the peopling of the world before year 0), farming, cultures, settlements, states |
 | `histsim/names` | Generated languages: sound systems, sound changes between related languages, names |
+| `histsim/agents` | Decisions: the shared decision step and the built-in AI (war, alliances) |
 | `histsim/viewer` | The live and replay viewer |
 | `histsim/record` | Saving runs (snapshots + changes, events, statistics) and reading them back |
 | `histsim/analysis` | Graphs (with Earth's real population for comparison) and maps |

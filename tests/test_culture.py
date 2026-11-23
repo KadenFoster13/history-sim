@@ -112,7 +112,7 @@ class RecordingTests(unittest.TestCase):
             sim = Simulation(WORLD, seed=3, systems=default_systems())
             viewer = HistoryViewer(WORLD, LiveSource(sim), "test")
             viewer.step()
-            for mode in ("Cultures", "Language families", "Background only", "Arrival"):
+            for mode in ("Cultures", "Language families", "States", "Background only", "Arrival"):
                 viewer._on_mode(mode)
             for bg in ("Biomes", "White", "Terrain"):
                 viewer._on_background(bg)
@@ -121,6 +121,19 @@ class RecordingTests(unittest.TestCase):
             land = ~WORLD.ocean & ~WORLD.lake
             cut = best_seam(WORLD)
             self.assertLessEqual(land[:, cut].sum(), np.median(land.sum(axis=0)))   # cuts through little land
+            viewer._set_view(100, 140, 120, 100)            # zoom in, then enhance
+            viewer.enhance()
+            self.assertIsNotNone(viewer.enhanced)
+            box = viewer.enhanced.region.box
+            self.assertEqual(viewer.region_image.get_array().shape[:2],
+                             (box.rows * box.factor, box.cols * box.factor))
+            fine = viewer.enhanced.layers(viewer.source.layers())
+            coarse = viewer.source.layers()["population"]       # people are shared among fine pixels
+            self.assertLessEqual(fine["population"].max(), coarse.max() / box.factor ** 2 + 1e-6)
+            for mode in ("People", "States", "Arrival"):
+                viewer._on_mode(mode)
+            viewer.clear_enhanced()
+            self.assertIsNone(viewer.region_image)
             viewer.toggle_dark()
             self.assertTrue(os.path.exists(viewer.save(os.path.join(tmp, "v.png"))))
             self.assertIn("N", viewer._describe(200, 100) + "N")

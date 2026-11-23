@@ -24,7 +24,7 @@ from worldgen.hydrology import cell_river_flow
 from worldgen.noise import Perlin3, fbm
 
 from ..core.simulation import System
-from .geo import cell_area_km2, touches
+from .geo import cell_area_km2, cell_scale, touches
 from .population import FARMING, HERDING
 
 CITY = 10_000
@@ -39,6 +39,7 @@ class Settlements(System):
     def setup(self, state):
         cfg, world = state.config, state.world
         self.every = cfg.step_years
+        self.scale = cell_scale(world, cfg)
         self.area = cell_area_km2(world)
         land = ~world.ocean & ~world.lake
         self.land = land
@@ -98,11 +99,58 @@ class Settlements(System):
         centre = (score > 0) & (score >= _box(score, r, np.maximum))
         quality = np.clip(self.site / self.site_mean, 0.5, 2.5)
         target = np.where(centre, cfg.central_place_share * share * hinter * quality, 0)
-        target = np.minimum(target, 0.9 * np.maximum(pop, 0) + target * 0.1)   # can't outgrow its people for long
+        # A town can't outgrow the people around it for long: its own townspeople plus the
+        # farmers of an 800-px cell's ~2,500 km2 around it, whatever the map's cell size
+        # (on a fine map that area spans several cells; on a coarse one it is part of one).
+        people = np.maximum(pop, 0)
+        if self.scale == 1:
+            nearby = people
+        else:
+            town_people = np.minimum(size, people)
+            k = int(0.5 / self.scale + 1e-9)
+            if k == 0:
+                nearby = town_people + (people - town_people) / self.scale ** 2
+            else:
+                around = _box(people, k, np.add) - town_people
+                nearby = town_people + around * (1 / self.scale ** 2 - 1) / ((2 * k + 1) ** 2 - 1)
+        target = np.minimum(target, 0.9 * nearby + target * 0.1)
+        self._capitals(state, target, dt)
         size += (target - size) * (1 - np.exp(-dt / cfg.settlement_years))
         size[size < 50] = 0
         self._places(state)
         self._stats(state)
+
+    def _capitals(self, state, target, dt):
+        """Capitals draw people, trade and tribute from their whole state: they grow far
+        beyond what their own fields could support, fed by the rest of the state, and people
+        move to them from across it."""
+        polity = state.tables.get("polity")
+        if polity is None or not hasattr(polity, "people"):
+            return
+        cfg = state.config
+        pop = state.cells["population"]
+        own = state.cells["state"]
+        records = state.tables["states"]
+        flat_pop = pop.ravel()
+        for sid in polity.alive_ids():
+            if sid >= len(polity.people) or polity.people[sid] < 50_000:
+                continue
+            cap = records[sid]["capital"]
+            share = cfg.capital_share * (0.5 if records[sid]["kind"] == "chiefdom" else 1.0)   # chiefs draw less
+            extra = share * polity.people[sid] * np.sqrt(polity.cohesion[sid])
+            target.flat[cap] += extra
+            # Migration toward the capital, from across the state (people are conserved).
+            want = target.flat[cap] / 0.9 - flat_pop[cap]
+            if want <= 0:
+                continue
+            others = np.flatnonzero((own.ravel() == sid))
+            others = others[others != cap]
+            pool = flat_pop[others].sum()
+            if pool <= 0:
+                continue
+            move = min(want * (1 - np.exp(-dt / cfg.settlement_years)), 0.02 * pool)
+            flat_pop[others] *= 1 - move / pool
+            flat_pop[cap] += move
 
     # ---------------------------------------------------------- named places
     def _places(self, state):

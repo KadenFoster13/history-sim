@@ -8,11 +8,15 @@ Controls
   Slower / Faster (or - / +)      years per frame
   Step (or Right arrow)           one jump forward while paused
   Year slider (replay)            jump to any year
-  Map buttons on the right        people, density, cultures, language families, background only, arrival
+  Map buttons on the right        people, density, cultures, language families, states,
+                                  background only, arrival
   Background buttons              draw maps over terrain, biomes or plain white (remembered)
   Scroll to zoom around the cursor, drag to move, R to reset the view
   Drag sideways to turn the map (it wraps east-west); C cuts it where it crosses the
     least land (done automatically at the start, like maps cut between Alaska and Siberia)
+  Enhance (or E)                  redraw the area in view 2-8x finer, with the world
+                                  generator's detailed coasts and rivers (zoom in first);
+                                  Clear (or Escape) goes back to the plain map
   Dark / Light (or D)             the same remembered setting as the world viewer
   S                               save the current view as a PNG in renders/
   Hover over the map              what is there: people, way of life, culture, language, town
@@ -24,15 +28,19 @@ from collections import deque
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.collections import LineCollection
 from matplotlib.widgets import Button, RadioButtons, Slider
 
-from ..analysis.maps import (BACKGROUNDS, MODE_COLOURS, TOWN_MIN, arrival_map, base_map, culture_colours,
-                             culture_map, density_map, family_map, people_map)
+from ..analysis.maps import (BACKGROUNDS, MODE_COLOURS, TOWN_MIN, WAR_RED, arrival_map, base_map,
+                             culture_colours, culture_map, density_map, family_map, people_map,
+                             state_colours, state_map)
 from ..core.calendar import label, real_year
 from ..systems.population import FARMING, FORAGING, HERDING
+from .enhance import EnhancedArea
 
 MODES = {"People": people_map, "Density": density_map, "Cultures": culture_map,
-         "Language families": family_map, "Background only": None, "Arrival": arrival_map}
+         "Language families": family_map, "States": state_map, "Background only": None,
+         "Arrival": arrival_map}
 BACKGROUND_LABELS = {"Terrain": "terrain", "Biomes": "biomes", "White": "white"}
 SPEEDS = [1, 5, 10, 25, 50, 100, 250, 500]          # years per frame
 WAYS = {0: "nobody", FORAGING: "foragers", HERDING: "herders", FARMING: "farmers"}
@@ -161,6 +169,9 @@ class HistoryViewer:
         self._labels = []
         self._panel = []           # texts and patches of the info panel and legend (redrawn)
         self.scale = 1.0           # text size factor, follows the window size
+        self.enhanced = None       # an EnhancedArea drawn over the map, or None
+        self.region_image = None
+        self._region_key = None
 
         self.fig = plt.figure(figsize=(FIG_W, FIG_H))
         self.fig.canvas.manager.set_window_title("History viewer")
@@ -169,6 +180,9 @@ class HistoryViewer:
         self.ax.format_coord = self._describe
         self.image = self.ax.imshow(base_map(world), interpolation="nearest")
         self.towns = self.ax.scatter([], [], s=[], c="white", edgecolors="black", linewidths=0.6, zorder=3)
+        self.region_rivers = LineCollection([], colors=[(0.24, 0.47, 0.78)], capstyle="round",
+                                            joinstyle="round", zorder=2.5)
+        self.ax.add_collection(self.region_rivers)
         h, w = world.ocean.shape
         self.full_view = (-0.5, w - 0.5, h - 0.5, -0.5)
         self.offset = best_seam(world)      # map column shown at the left edge
@@ -212,10 +226,14 @@ class HistoryViewer:
             self._slider_busy = False
         self.btn_theme = Button(self.fig.add_axes([0.90, 0.94, 0.08, 0.04]), "Light" if self.dark else "Dark")
         self.btn_theme.on_clicked(lambda _: self.toggle_dark())
+        self.btn_enhance = Button(self.fig.add_axes([0.015, 0.94, 0.075, 0.04]), "Enhance")
+        self.btn_enhance.on_clicked(lambda _: self.enhance())
+        self.btn_clear = Button(self.fig.add_axes([0.095, 0.94, 0.06, 0.04]), "Clear")
+        self.btn_clear.on_clicked(lambda _: self.clear_enhanced())
 
     def _build_side_panel(self):
         x = 0.775
-        radio_ax = self.fig.add_axes([x, 0.71, 0.115, 0.2])
+        radio_ax = self.fig.add_axes([x, 0.685, 0.115, 0.225])
         radio_ax.set_title("Map", fontsize=11, loc="left", weight="bold")
         self.radio = RadioButtons(radio_ax, list(MODES), active=0, label_props={"fontsize": [9.5]},
                                   radio_props={"s": [60]})
@@ -227,9 +245,9 @@ class HistoryViewer:
         self.bg_radio = RadioButtons(bg_ax, labels, active=active, label_props={"fontsize": [9.5]},
                                      radio_props={"s": [60]})
         self.bg_radio.on_clicked(self._on_background)
-        self.info_ax = self.fig.add_axes([x, 0.30, 0.205, 0.39])     # a two-column table
+        self.info_ax = self.fig.add_axes([x, 0.215, 0.205, 0.45])    # a two-column table
         self.info_ax.set_axis_off()
-        self.events_text = self.fig.text(x, 0.275, "", fontsize=8, va="top", wrap=False)
+        self.events_text = self.fig.text(x, 0.2, "", fontsize=8, va="top", wrap=False)
         self.legend_ax = self.fig.add_axes([0.015, 0.105, 0.74, 0.045])
         self.legend_ax.set_axis_off()
 
@@ -267,12 +285,13 @@ class HistoryViewer:
         tables = src.tables()
         draw = MODES[self.mode]
         img = (base_map(self.world, self.background) if draw is None
-               else draw(self.world, layers, tables, background=self.background))
+               else draw(self.world, layers, tables, background=self.background, year=src.year))
         self._img, self._layers, self._tables = img, layers, tables
         self._draw_map()
         stats = src.stats()
         pop = float(stats.get("world_population", 0))
-        self.ax.set_title(f"{self.title}   |   {label(src.year)}   |   {_count(pop)} people",
+        detail = f"   |   enhanced {self.enhanced.factor}x" if self.enhanced is not None else ""
+        self.ax.set_title(f"{self.title}   |   {label(src.year)}   |   {_count(pop)} people{detail}",
                           fontsize=self.fs(12), color=self.theme["fg"])
         self.speed_text.set_text(f"{SPEEDS[self.speed_i]} years per frame"
                                  + ("   (live)" if src.live else ""))
@@ -293,12 +312,91 @@ class HistoryViewer:
     def _draw_map(self):
         """The map picture and everything on it, turned to the current offset."""
         self.image.set_data(np.roll(self._img, -self.offset, axis=1))
+        self._draw_enhanced()
         self._draw_towns(self._layers, self._tables)
         self._draw_culture_labels(self._layers, self._tables)
 
     def _x(self, col):
         """Where a map column appears on screen with the map turned by `offset`."""
         return (np.asarray(col) - self.offset) % self.world.ocean.shape[1]
+
+    # ---------------------------------------------------------------- enhance
+    def enhance(self):
+        """Redraw the area in view in finer detail (see enhance.py)."""
+        from worldgen.region import MAX_REGION_PX, box_for_view, generate_region
+        x0, x1 = self.ax.get_xlim()
+        bottom, top = self.ax.get_ylim()
+        box = box_for_view(self.world, x0 + self.offset, x1 + self.offset, top, bottom)
+        if box is None:
+            self._say(f"Zoom in further to enhance (at most {MAX_REGION_PX // 2} map cells across;"
+                      f" now {x1 - x0:.0f})")
+            return
+        self._say(f"Enhancing this area at {box.factor}x detail...")
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        t0 = time.perf_counter()
+        region = generate_region(self.world, box)
+        self.clear_enhanced(redraw=False)
+        self.enhanced = EnhancedArea(self.world, region)
+        self._enhance_time = time.perf_counter() - t0
+        self.redraw()
+
+    def clear_enhanced(self, redraw=True):
+        self.enhanced = None
+        self._region_key = None
+        if self.region_image is not None:
+            self.region_image.remove()
+            self.region_image = None
+        self.region_rivers.set_segments([])
+        if redraw:
+            self.redraw()
+
+    def _say(self, text):
+        self.ax.set_title(text, fontsize=self.fs(12), color=self.theme["fg"])
+        self.fig.canvas.draw_idle()
+
+    def _draw_enhanced(self):
+        """The enhanced area's own picture (same map and background), over the plain map."""
+        if self.enhanced is None:
+            return
+        area = self.enhanced
+        region, box = area.region, area.region.box
+        key = (id(self._layers), self.mode, self.background, self.source.year)
+        if key != self._region_key:
+            draw = MODES[self.mode]
+            img = (base_map(region, self.background) if draw is None
+                   else draw(region, area.layers(self._layers), self._tables,
+                             background=self.background, year=self.source.year))
+            # The map functions wrap east-west; the area doesn't, so its edges would show
+            # false borders.
+            img[0], img[-1], img[:, 0], img[:, -1] = img[1], img[-2], img[:, 1], img[:, -2]
+            self._region_img, self._region_key = img, key
+        w = self.world.ocean.shape[1]
+        x0, x1 = self.ax.get_xlim()
+        left = box.col0 - 0.5 - self.offset
+        while left + box.cols < x0:          # the copy of the area nearest the view
+            left += w
+        while left > x1:
+            left -= w
+        top = box.row0 - 0.5
+        extent = (left, left + box.cols, top + box.rows, top)
+        if self.region_image is None:
+            ylim = self.ax.get_ylim()
+            self.region_image = self.ax.imshow(self._region_img, extent=extent, interpolation="nearest",
+                                               zorder=2)
+            self.ax.set_xlim(x0, x1)          # imshow would otherwise reset the view
+            self.ax.set_ylim(*ylim)
+        else:
+            self.region_image.set_data(self._region_img)
+            self.region_image.set_extent(extent)
+        if getattr(self, "_river_region", None) is not region:
+            from worldgen.render import river_segments
+            zoom = w / max(x1 - x0, 1)
+            segs, widths = river_segments(region, zoom=zoom * box.factor)
+            self._river_segs, self._river_widths = (segs + 0.5) / box.factor, widths
+            self._river_region = region
+        self.region_rivers.set_segments(self._river_segs + [left, top])
+        self.region_rivers.set_linewidths(self._river_widths)
 
     def recut(self):
         """Cut the map where it crosses the least land."""
@@ -338,10 +436,11 @@ class HistoryViewer:
                     bbox={"boxstyle": "round,pad=0.15", "fc": (1, 1, 1, 0.65), "ec": "none"}))
 
     def _draw_culture_labels(self, layers, tables):
-        if self.mode not in ("Cultures", "Language families"):
+        if self.mode not in ("Cultures", "Language families", "States"):
             return
-        cult = layers.get("culture")
-        records = tables.get("cultures")
+        key, table = ("state", "states") if self.mode == "States" else ("culture", "cultures")
+        cult = layers.get(key)
+        records = tables.get(table)
         if cult is None or not records:
             return
         pop = layers.get("population")
@@ -370,13 +469,15 @@ class HistoryViewer:
                 self._culture_label(ccol[lead], cr[lead], name or records[lead]["name"])
             return
         for cid in np.argsort(-people[1:])[:12] + 1:
-            if people[cid] > 1:
+            if people[cid] > 1 and records[cid]:
                 self._culture_label(ccol[cid], cr[cid], records[cid]["name"])
 
     def _room(self, col, row):
         """Is there space for a label here (none too close on screen)?"""
         x0, x1 = self.ax.get_xlim()
         y0, y1 = self.ax.get_ylim()
+        if not (min(x0, x1) <= col <= max(x0, x1) and min(y0, y1) <= row <= max(y0, y1)):
+            return False                       # outside the view
         dx, dy = abs(x1 - x0) * 0.075, abs(y0 - y1) * 0.045
         return all(abs(col - pc) > dx or abs(row - pr) > dy for pc, pr in self._placed)
 
@@ -385,7 +486,7 @@ class HistoryViewer:
             return
         self._placed.append((col, row))
         self._labels.append(self.ax.text(col, row, text, fontsize=self.fs(8.5), ha="center", va="center",
-                                         weight="bold", color="black", zorder=4,
+                                         weight="bold", color="black", zorder=4, clip_on=True,
                                          bbox={"boxstyle": "round,pad=0.2", "fc": (1, 1, 1, 0.55), "ec": "none"}))
 
     def _draw_info(self, layers, tables, stats):
@@ -400,13 +501,26 @@ class HistoryViewer:
                 ("Language families", f"{int(g('language_families')):,}", "row"),
                 ("Towns (2,000+)", f"{int(g('towns')):,}", "row"),
                 ("Cities (10,000+)", f"{int(g('cities')):,}", "row"),
-                ("Living in towns", _share(g("urban_share") * pop, pop), "row")]
+                ("Living in towns", _share(g("urban_share") * pop, pop), "row"),
+                ("States", f"{int(g('states')):,}", "row"),
+                ("kingdoms, empires", f"{int(g('kingdoms')) - int(g('empires')):,}, {int(g('empires')):,}", "sub"),
+                ("Living in states", _share(g("people_in_states") * pop, pop), "row"),
+                ("Wars being fought", f"{int(g('wars')):,}", "row")]
+        own = layers.get("state")
+        states = tables.get("states")
+        if own is not None and states:
+            p = layers.get("population")
+            people = np.bincount(own.ravel(), weights=p.ravel(), minlength=len(states))
+            top = [sid for sid in np.argsort(-people[1:])[:4] + 1 if people[sid] > 0 and states[sid]]
+            if top:
+                rows += [("", "", "gap"), ("Largest states", "", "head")]
+                rows += [(states[sid]["title"], _count(people[sid]), "sub") for sid in top]
         cult = layers.get("culture")
         records = tables.get("cultures")
         if cult is not None and records:
             p = layers.get("population")
             people = np.bincount(cult.ravel(), weights=p.ravel(), minlength=len(records))
-            top = [cid for cid in np.argsort(-people[1:])[:5] + 1 if people[cid] > 0]
+            top = [cid for cid in np.argsort(-people[1:])[:3] + 1 if people[cid] > 0]
             if top:
                 rows += [("", "", "gap"), ("Largest peoples", "", "head")]
                 rows += [(records[cid]["name"], _count(people[cid]), "sub") for cid in top]
@@ -414,13 +528,13 @@ class HistoryViewer:
         ids = layers.get("settlement_id")
         places = tables.get("settlements") or []
         if size is not None and ids is not None and places:
-            top = np.argsort(-size.ravel())[:5]
+            top = np.argsort(-size.ravel())[:3]
             towns = [(places[int(ids.flat[i])]["name"], _count(size.flat[i]), "sub") for i in top
                      if size.flat[i] >= TOWN_MIN and 0 < int(ids.flat[i]) < len(places) and places[int(ids.flat[i])]]
             if towns:
                 rows += [("", "", "gap"), ("Largest towns", "", "head")] + towns
         ax, fg = self.info_ax, self.theme["fg"]
-        step = 1 / 23
+        step = 1 / 30
         y = 1.0
         for name, value, kind in rows:
             if kind == "gap":
@@ -457,6 +571,9 @@ class HistoryViewer:
                 ticks = [(f, _bce(lo + (hi - lo) * f)) for f in (0, 0.25, 0.5, 0.75, 1)]
                 self._scale_bar("viridis", ticks, "when people first arrived",
                                 extra=[((0.6, 0.6, 0.6), "Not reached yet")])
+        elif self.mode == "States":
+            items = self._state_swatches(layers, tables)
+            self._swatches(items + [(tuple(WAR_RED), "War front"), town])
         elif self.mode in ("Cultures", "Language families"):
             self._swatches(self._group_swatches(layers, tables) + [town],
                            note="related peoples have similar colours" if self.mode == "Cultures" else "")
@@ -512,6 +629,17 @@ class HistoryViewer:
             self._panel.append(ax.text(x + 0.022, 0.72, name, transform=ax.transAxes, va="center",
                                        fontsize=self.fs(9), color=fg, clip_on=False))
 
+    def _state_swatches(self, layers, tables, n=5):
+        own = layers.get("state")
+        states = tables.get("states")
+        if own is None or not states:
+            return []
+        p = layers.get("population")
+        people = np.bincount(own.ravel(), weights=p.ravel(), minlength=len(states))
+        colours = state_colours(tables)
+        return [(tuple(colours[s]), states[s]["name"]) for s in np.argsort(-people[1:])[:n] + 1
+                if people[s] > 0 and states[s]]
+
     def _group_swatches(self, layers, tables, n=6):
         """The largest peoples (or language families) with their map colours."""
         cult = layers.get("culture")
@@ -557,7 +685,7 @@ class HistoryViewer:
         lines = ["Recent events"]
         for e in reversed(events):
             wrapped = textwrap.wrap(f"{label(e['year'])}: {e['text']}", 50)
-            if len(lines) + len(wrapped) > 14:
+            if len(lines) + len(wrapped) > 11:
                 break
             lines += wrapped
         return "\n".join(lines)
@@ -629,7 +757,8 @@ class HistoryViewer:
             ax.set_facecolor(t["bg"])
             for spine in ax.spines.values():
                 spine.set_edgecolor(t["edge"])
-        for b in (self.btn_play, self.btn_slow, self.btn_fast, self.btn_step, self.btn_theme):
+        for b in (self.btn_play, self.btn_slow, self.btn_fast, self.btn_step, self.btn_theme,
+                  self.btn_enhance, self.btn_clear):
             b.color, b.hovercolor = t["button"], t["hover"]
             b.ax.set_facecolor(t["button"])
         self.radio.set_radio_props({"edgecolor": t["fg"], "facecolor": t["fg"]})
@@ -663,13 +792,23 @@ class HistoryViewer:
         nx0 = cx - rx * wd
         ny1 = cy - ry * ht
         self._set_view(nx0, nx0 + wd, ny1 + ht, ny1)
+        self._relabel()
 
     def _on_press(self, event):
         if event.inaxes is self.ax and event.button == 1:
             self.drag = (event.x, event.y, self.offset, self.ax.get_xlim(), self.ax.get_ylim())
 
     def _on_release(self, event):
+        if self.drag is not None:
+            self._relabel()
         self.drag = None
+
+    def _relabel(self):
+        """Place town and people names for the part of the map now in view."""
+        if getattr(self, "_layers", None) is not None:
+            self._draw_towns(self._layers, self._tables)
+            self._draw_culture_labels(self._layers, self._tables)
+            self.fig.canvas.draw_idle()
 
     def _on_motion(self, event):
         """Dragging turns the map sideways (it wraps) and moves it up and down when zoomed."""
@@ -687,6 +826,7 @@ class HistoryViewer:
 
     def reset_view(self):
         self._set_view(*self.full_view)
+        self._relabel()
 
     # ------------------------------------------------------------------- keys
     def _on_key(self, event):
@@ -705,6 +845,10 @@ class HistoryViewer:
             self.recut()
         elif k in ("d", "D"):
             self.toggle_dark()
+        elif k in ("e", "E"):
+            self.enhance()
+        elif k == "escape":
+            self.clear_enhanced()
         elif k in ("s", "S"):
             print(f"saved {self.save()}")
 
@@ -793,6 +937,7 @@ def _legend(mode):
         "Density": "people per km2, log scale (dark = few, bright = many); dots = towns",
         "Cultures": "each culture in its own colour, related cultures in similar colours; dots = towns",
         "Language families": "cultures coloured by language family; dots = towns",
+        "States": "states, darker edges at borders, war fronts in red; dots = towns",
         "Background only": "the land alone (choose terrain, biomes or white on the right); dots = towns",
         "Arrival": "when people first arrived (dark = earliest, light = latest, grey = not yet)",
     }[mode]

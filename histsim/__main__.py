@@ -102,7 +102,7 @@ def main(argv=None):
 
     run = sub.add_parser("run", help="simulate a history and save it")
     run.add_argument("--world", type=int, default=1, help="world seed")
-    run.add_argument("--width", type=int, default=800, help="world map width (800 recommended)")
+    run.add_argument("--width", type=int, default=800, help="world map width (800 is the size the rules were tuned on; other sizes are rescaled to match)")
     run.add_argument("--seed", type=int, default=1, help="history seed (same seeds = same history)")
     run.add_argument("--start", type=int, default=0, help="first year (0 = 10,000 BCE)")
     run.add_argument("--until", type=int, default=12_000, help="stop before this year (12,000 = 2001 CE)")

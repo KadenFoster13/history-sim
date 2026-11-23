@@ -31,7 +31,7 @@ from worldgen.noise import Perlin3, fbm
 
 from ..core.simulation import System
 from ..names import Language
-from .geo import (DIRECTIONS4, ShelfSource, cell_area_km2, cell_graph, great_circle_km, land_now,
+from .geo import (DIRECTIONS4, cell_scale, cells_for, rounds_for, ShelfSource, cell_area_km2, cell_graph, great_circle_km, land_now,
                   nearest_seed, spaced_sample, subgraph)
 from .population import FARMING, FORAGING, HERDING, TRAVEL, _by_biome
 
@@ -48,6 +48,7 @@ class Cultures(System):
     def setup(self, state):
         cfg, world = state.config, state.world
         self.every = cfg.step_years
+        self.scale = cell_scale(state.world, cfg)
         self.rng = state.rng.get("cultures")
         self.name_rng = state.rng.get("names")
         h, w = world.ocean.shape
@@ -228,14 +229,18 @@ class Cultures(System):
             cult[take] = best_c[take]
         self._prev_mode = mode.copy()
 
-        # Assimilation by stronger neighbours; enclaves absorbed.
-        best_c, best_s, count = _strongest_neighbour(cult, strength, people, different=True)
-        ratio = best_s / np.maximum(strength, 1e-9)
-        pressure = cfg.assimilation_rate * np.clip(np.log(np.maximum(ratio, 1)), 0, 3)
-        pressure += cfg.cohesion_rate * (count >= 3)
-        chance = 1 - np.exp(-pressure * dt)
-        flip = people & (best_c > 0) & (rng.random(cult.shape) < chance)
-        cult[flip] = best_c[flip]
+        # Assimilation by stronger neighbours; enclaves absorbed (fronts move as many km at
+        # any map size: more rounds on fine maps).
+        rounds = rounds_for(self.scale)
+        for _ in range(rounds):
+            best_c, best_s, count = _strongest_neighbour(cult, strength, people, different=True)
+            ratio = best_s / np.maximum(strength, 1e-9)
+            pressure = cfg.assimilation_rate * np.clip(np.log(np.maximum(ratio, 1)), 0, 3)
+            pressure += cfg.cohesion_rate * (count >= 3)
+            pressure /= self.scale * rounds
+            chance = 1 - np.exp(-pressure * dt)
+            flip = people & (best_c > 0) & (rng.random(cult.shape) < chance)
+            cult[flip] = best_c[flip]
 
         if (state.year - getattr(self, "_last_check", -10 ** 9)) >= cfg.culture_check_years:
             self._last_check = state.year
@@ -253,6 +258,11 @@ class Cultures(System):
         town = state.cells.get("settlement")
         if town is not None:
             s = s * (1 + np.log1p(town / 1000))
+        polity = state.tables.get("polity")
+        own = state.cells.get("state")
+        if polity is not None and own is not None and len(polity.ruler_culture) > int(own.max()):
+            rulers = state.cells["culture"] == polity.ruler_culture[own]
+            s = s * (1 + cfg.ruling_prestige * (rulers & (own > 0)))      # the rulers' culture
         return s
 
     # ---------------------------------------------------------------- splits
@@ -294,7 +304,7 @@ class Cultures(System):
         herders = np.bincount(cult, weights=np.where(mode == HERDING, pop, 0), minlength=n_ids)
         limit = cfg.culture_radius_km * (1 + herders / np.maximum(people, 1e-9))
         p_split = 1 - np.exp(-cfg.culture_check_years / cfg.culture_split_years)
-        wide = np.flatnonzero((reach > limit) & (counts >= 6))
+        wide = np.flatnonzero((reach > limit) & (counts >= cells_for(6, self.scale)))
         for cid in wide:
             if self.rng.random() < p_split:
                 cells = idx[cult[idx] == cid]
@@ -320,7 +330,7 @@ class Cultures(System):
         first[1:] = piece_cult[order][1:] != piece_cult[order][:-1]
         main[order[first]] = True
         p_iso = 1 - np.exp(-cfg.culture_check_years / cfg.isolation_split_years)
-        for k in np.flatnonzero(~main & (size >= cfg.min_culture_cells)):
+        for k in np.flatnonzero(~main & (size >= cells_for(cfg.min_culture_cells, self.scale))):
             if self.rng.random() < p_iso:
                 cells = idx[inverse == k]
                 self._break_away(state, int(piece_cult[k]), cells, pop)

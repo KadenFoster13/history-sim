@@ -142,6 +142,69 @@ Places of 2,000+ are named towns (in the local language, from features like rive
 hill or sea); 10,000+ are cities. Bigger capitals and urban shares come with states
 (phase 3).
 
+### States, war and breakup (phase 3)
+- **Formation:** where farming is ~4,000 years old, a town may become a chiefdom's seat;
+  herders with horses may form confederations. Chiefdoms of 150,000+ people with a city
+  of 10,000 (or twice the people) become kingdoms; 3 million people (or 1.5 million mostly
+  of other peoples) make an empire; a single city with its fields is a city-state.
+- **Grip:** a state's strength at a cell is the square root of its people (herders with
+  horses count extra) times its cohesion, fading with travel distance from the capital
+  (open plains count as their real distance, rough country more). Its reach grows with
+  its size. Strong states take in stateless villages, farmers far more easily than
+  foragers or herders, and villages they half surround far more readily than ones at the
+  tip of a thin finger, so borders fill in instead of reaching out in strings.
+- **Decisions:** every state decides through one step (`histsim/agents`): attack a
+  neighbour when clearly stronger along the border (more readily if it is busy elsewhere;
+  equals fight now and then), seek allies against a giant. A player will later use the
+  same step.
+- **War:** front cells change hands by local strength against defence (hills, great
+  rivers, walls, the capital); conquest kills 5% of a cell's people. Wars last ~18 years,
+  then peace and a truce of 15-50 years; losing the capital means annexation for a small
+  state, a new capital for a large one. Allies join defensive wars.
+- **Cohesion** (Turchin's asabiya) grows on frontiers with peoples of other language
+  families and fades in quiet cores, faster for very big states (overextension, from ~10
+  million people). Distant regions of other cultures rebel when cohesion is low; when it
+  runs out (below 0.12) a big state collapses at once into 2-8 successor states around
+  its great towns, so empires rise fast and fall within centuries.
+- **Submission:** a neighbour six times weaker may bow to a great power without war.
+- **Effects:** capitals draw a share of their state's people (fed and peopled from across
+  it); farmland in a state feeds 25% more; the rulers' culture slowly assimilates subjects.
+- **Not yet:** vassals and tribute, marriages and named rulers (phase 5), armies moving
+  over the map, sea power (phase 7). Technology (phase 4) should lengthen states' reach
+  (writing, roads, horses, bureaucracy) so that a few empires can hold a fifth of the world.
+- **Later: how wars are fought.** Today every cell along a front may change hands each
+  step, so a war pushes the whole border outward at once and conquests grow as rounded
+  blobs (or diamonds along the map grid; fronts now favour cells already half surrounded,
+  which helps but doesn't change the idea). Real wars aim somewhere: at a rich province,
+  a river valley, a city, a pass, a holy place, the enemy capital, along roads and rivers,
+  and they end in treaties that hand over named regions, not a ring of land. When
+  technology (roads, armies, siege), religion (holy war, sacred cities), trade (routes and
+  ports worth taking) and named rulers arrive, war should become: pick war goals (regions,
+  cities), move along routes toward them, take what is reached, and settle by treaty.
+  Borders would then follow rivers, mountains and old provincial lines.
+
+### Rivers and the spread of farming (phase 3 follow-up)
+Most early states arose on rivers (Mesopotamia, Egypt, the Indus, the Yellow River), and
+farming spread unevenly, not as a smooth ring. The simulation now follows that:
+
+- **River water** (worldgen 1.4 `floodplain`, `irrigable`): on floodplains crops grow on
+  the receding flood whatever the rain, so desert rivers can be farmed (the Nile), and
+  the yearly silt makes harvests up to twice as large. Canals water the wider irrigable
+  land once known: `canal_irrigation` (0..1) is the hook for phase 4's technology.
+- **Circumscription** (Carneiro): good farmland hemmed in by desert, mountains or sea
+  within ~200 km forms chiefdoms up to 5x as often and up to 40% sooner; the losers of
+  wars there have nowhere to flee.
+- **Uneven spread:** farming moves fastest along great rivers (up to 7x) and coasts (4x)
+  and over good soil (as the first farmers followed central Europe's loess valleys);
+  pioneers settle good river or coast land 50-300 km ahead of the front, then the gaps
+  fill in (Linear Pottery, Bantu farmers).
+- **Forager frontiers:** foragers take up a crop readily only once it would feed 2.5x as
+  many people as foraging; where they live well (rich coasts, lakes, rivers) farming
+  creeps at a few percent of its pace until crops improve (northern Europe's ~1,000-year
+  pause).
+- **Later:** stored, taxable grain (cereals) favouring states over tuber farming;
+  seafaring pioneers (the Mediterranean's coast-hopping farmers) with phase 7.
+
 ### Wild plants and animals (worldgen 1.1)
 Each world gets domesticable species with climate ranges and native homelands, blocked
 by oceans and mountains, so not every continent gets every species:
@@ -308,7 +371,7 @@ Each phase ends with something to run, watch and graph.
 | 1 | Peopling pre-pass; foraging populations; emergence and spread of farming and herding; villages | Humans spreading out, farming appearing in a few hearths and spreading |
 | 2 | Cultures and generated languages; towns and cities; the live viewer with map modes | Cultures splitting, named places, the first cities |
 | 3 | States: chiefdoms to empires, territory, borders, administration; diplomacy and war | Borders forming, wars and conquests, empires rising and falling |
-| 4 | Technology web and its spread; economy, resources and trade routes | Bronze and iron ages emerging, trade networks |
+| 4 | Technology web and its spread (including canals: `canal_irrigation`); economy, resources and trade routes | Bronze and iron ages emerging, trade networks |
 | 5 | Religions and ideologies; key figures and dynasties; the chronicle | Faiths founded and spreading, named rulers, a written history |
 | 6 | Disease, epidemics, climate shocks, disasters; nomads and migrations; collapse cycles | Plagues, droughts, steppe invasions, dark ages |
 | 7 | Navigation, exploration, island settlement, colonisation | Explorers crossing oceans, colonial empires |
@@ -327,11 +390,32 @@ Each phase ends with something to run, watch and graph.
   the models; they are built in from phase 2.
 - **Open:** how future eras (past ~2100 CE) behave; how much player control changes the
   AI; whether to show the globe view in replays.
+- **Map size (mostly done):** the rules are scaled to cell size (`geo.cell_scale`): extra
+  rounds for fronts; river and coast bands the same width in km (widened on finer maps,
+  part of a cell on coarser ones); frontier bands for cohesion likewise; counts in cells
+  scaled; new states founded on ~150 km of land; breakaways bigger than a one-cell
+  statelet; towns capped by the people within ~2,500 km2. Worldgen 1.5 picks wild
+  species' homelands on a fixed grid, so ranges match at any width. 800 px gives exactly
+  the same runs as before. World 31 at 1 CE, three history seeds each, all with the 800 px
+  wildlife:
+
+  | Width | People | Farmed | States | In states | Biggest town | Empires ever | Wars/century |
+  |---|---|---|---|---|---|---|---|
+  | 400 px | 90-106M | 37-41% | 412-483 | 79-83% | 84-136k | 16-30 | 55-100 |
+  | 800 px | 76-97M | 37-42% | 222-314 | 52-73% | 56-84k | 17-32 | 44-53 |
+  | 1600 px | 59-85M | 35-45% | 175-273 | 52-66% | 43-66k | 13-19 | 31-51 |
+
+  (Before these fixes, 400 px had 118-119M people and 1600 px 7-22 empires and 14-43
+  wars per century.) Most measures now overlap, but a milder trend remains: coarser maps
+  have more, smaller states, more wars and somewhat more people. Likely in how states
+  form and break up per cell (formation chance per town, secession, collapse into
+  successors). Test with 400 px runs first.
 
 ## 12. Decision log
 
 | Date | Decision |
 |---|---|
+| 2026-11-23 | Rules scaled to map size so a different `--width` gives a comparable history: most 1 CE measures at 400 and 1600 px now fall near the 800 px range; coarser maps still have more states and wars (see Risks, "Map size"). Worldgen 1.5: wild species homelands picked on a fixed grid, so ranges are the same at any width (this changes every world's wildlife, so histories differ from 1.4) |
 | 2026-11-21 | Simulate on worldgen map cells (800 px), 4-direction moves, rivers on edges |
 | 2026-11-21 | Watch live, save and replay, graphs after a run; player control in a later phase |
 | 2026-11-21 | Societies plus key figures |
@@ -341,6 +425,10 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-21 | Full runs may take hours |
 | 2026-11-21 | Calendar: year 0 is exactly 10,000 BCE; year 10,000 = 1 CE; 2025 CE = year 12,024 |
 | 2026-11-21 | Peopling: island-hopping up to 300 km, plus rare ancient voyages to large empty lands within 1,500 km; remote lands stay empty for later seafarers |
+| 2026-11-22 | Phase 3 empire tuning: sudden collapse into successor states, submission of small neighbours, size counts more in war (x1.5), overextension from 10 million, reach grows faster with size, rulers assimilate subjects faster. Worlds 31 and 22 to 1 CE: empires last a median 325-375 years as empires (Earth 2-4 centuries), first empire ~2850-4100 BCE, the largest state holds 4-12% of the world at its peak and ~4% at 1 CE (Earth ~20-25%: still short; for phase 4's technology of rule) |
+| 2026-11-22 | Rivers and farming spread (worldgen 1.4: `floodplain`, `irrigable`): crops grow on floodplains without rain and yield up to 2x; canals left to phase 4 (`canal_irrigation`); hemmed-in farmland forms states up to 5x as often and 40% sooner (Carneiro); farming spreads up to 7x faster along great rivers, 4x along coasts, toward good soil, by pioneers 50-300 km ahead, and stalls where foragers live well. Worlds 31 and 22: farmers on rivers 21-23% -> ~30%, on floodplains (5-6% of land) 8-10% -> 14-17%; newly formed states' capitals on rivers 70-86% -> 90-100%, on floodplains 30-40% -> 50-70%; first kingdom 4400 / 3450 BCE; world 22 farms more slowly (35% of land by 1 CE, was 42%); runs ~8% slower |
+| 2026-11-22 | Phase 3 shapes and detail: stateless villages join a state more readily the more of their neighbours it holds, and war fronts advance where the attacker half surrounds a cell (fewer stringy borders and grid diamonds); goal-driven war noted for later. The viewer gets Enhance: the world generator's finer map of the view, with history's cells drawn on it with wandering (noise-warped) borders |
+| 2026-11-22 | Phase 3 built: states from chiefdoms to empires, territory by strength and travel distance, a shared decision step (agents/) with an AI for war and alliances, fronts, peace and truces, conquest, capitals falling, cohesion and overextension, rebellions; capitals draw people, states feed more, rulers' culture assimilates. World 31 to 1 CE: first kingdom ~4000 BCE (Earth ~3100), first empire ~3750 BCE (Earth ~2300), ~40-50 wars per century, ~120 war and ~90 state events in the chronicle by 1 CE. Off target: empires last too long (median ~700 years as an empire; Earth 2-4 centuries), the largest state holds only 3-7% of the world (Earth 1 CE ~20-25%) and the largest city ~50,000 (Earth 200,000+); left for phase 4's technology of rule and a later tuning round |
 | 2026-11-21 | Phase 2 built: cultures and language families from depth of settlement; generated languages with sound changes and cognates; farming spreads cultures, assimilation, splits; named towns and cities; the viewer (`watch` live, `replay` saved runs) with map modes and dark mode; dark graphs and maps; entity tables saved with runs. World 31: first town 5475 BCE, first city 3900 BCE (Earth ~3500), ~1,600 cultures in 50 families by 2000 CE. Still low until states arrive (phase 3): largest city at 1 CE ~25,000 (Earth 200,000-2 million), urban share ~2%, world population at 1 CE 88 million |
 | 2026-11-21 | Peopling level is a run option (sparse / some / most / all); dark mode in the worldgen viewer now, in the history viewer and graphs when they're built (phase 2) |
 | 2026-11-21 | Phase 1 built: peopling pre-pass, foragers from plant growth, domestication and spread of farming and herding, growth, migration, famine, drowned coasts; settings in histsim/config.py; maps command. Calibrated on worlds 31 and 22 to Earth's population (10,000-3000 BCE) and number of farming origins |

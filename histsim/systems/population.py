@@ -17,7 +17,7 @@ from worldgen.generator import distance_to, shift
 from worldgen.hydrology import cell_river_flow
 
 from ..core.simulation import System
-from .geo import DIRECTIONS4, ShelfSource, cell_area_km2, land_now, touches
+from .geo import DIRECTIONS4, ShelfSource, band, cell_area_km2, cell_scale, land_now, touches
 
 FORAGING, HERDING, FARMING = 1, 2, 3     # values of the `subsistence` layer (0 = nobody)
 
@@ -61,11 +61,12 @@ class Population(System):
     def setup(self, state):
         cfg, world = state.config, state.world
         self.every = cfg.step_years
+        self.scale = cell_scale(world, cfg)
         self.area = cell_area_km2(world)
         self.shelf = ShelfSource(world)
         # Fixed per-cell facts, with exposed sea floor borrowing from the nearest land.
         self.openness = self.shelf.fill(_by_biome(world.biome, OPENNESS, 0.7), world)
-        rivers = (cell_river_flow(world) > 200) | touches(world.lake)
+        rivers = band((cell_river_flow(world) > 200) | touches(world.lake), self.scale)
         self.aquatic = 1 + cfg.river_bonus * rivers
         self.base_temp = self.shelf.fill(world.temperature_c.astype(np.float32), world)
         self.base_precip = self.shelf.fill(world.precip_mm.astype(np.float32), world)
@@ -96,7 +97,7 @@ class Population(System):
         climate = state.climate
         temp = self.base_temp + (climate.temperature_offset_c if climate else 0)
         precip = self.base_precip * (climate.precip_factor if climate else 1)
-        coast = land & touches(~land & ~world.lake)
+        coast = np.where(land, band(touches(~land & ~world.lake), self.scale), 0)
         density = (cfg.forager_density_per_npp * plant_growth(temp, precip) * self.openness
                    * (self.aquatic + cfg.coast_bonus * coast))
         density = np.where(temp < -12, 0, density)        # under ice
@@ -116,6 +117,9 @@ class Population(System):
             cap, mode = farming.capacity(state, forage, land)
         else:
             cap, mode = forage, np.where(forage > 0, FORAGING, 0)
+        own = state.cells.get("state")
+        if own is not None:    # order, storage and public works: states' farmland feeds more
+            cap = np.where((own > 0) & (mode == FARMING), cap * (1 + cfg.state_food_bonus), cap).astype(np.float32)
         town = state.cells.get("settlement")
         if town is not None:   # townspeople are fed by their hinterland
             cap = np.where(cap > 0, cap + town, 0).astype(np.float32)
@@ -157,20 +161,24 @@ class Population(System):
 
         # Movement: people drift from crowded cells toward roomier neighbours.
         # Each flow is worked out once per pair of neighbours (east and south) and applied
-        # to both, so people are never created or lost by moving.
-        pressure = np.where(cap > 0, pop / np.maximum(cap, 1e-6), 0)
-        rate = min(0.24, cfg.migration_rate * dt)
-        change = np.zeros_like(pop)
-        for dy, dx in ((0, 1), (1, 0)):
-            nb_pop = shift(pop, dy, dx)
-            flow = rate * (pressure - shift(pressure, dy, dx)) * np.minimum(cap, shift(cap, dy, dx)) / 4
-            flow = np.clip(flow, -nb_pop / 4, pop / 4)
-            if dy == 1:
-                flow[-1] = 0          # the bottom row has no neighbour below
-            change -= flow
-            change += shift(flow, -dy, -dx) if dx else np.vstack([np.zeros_like(flow[:1]), flow[:-1]])
-        pop += change
-        np.maximum(pop, 0, out=pop)
+        # to both, so people are never created or lost by moving. Smaller cells need more
+        # rounds of it to move people as far (diffusion: rounds ~ 1 / cell size squared).
+        total = min(0.24, cfg.migration_rate * dt) / self.scale ** 2
+        rounds = int(np.ceil(total / 0.24 - 1e-9))
+        rate = total / rounds
+        for _ in range(rounds):
+            pressure = np.where(cap > 0, pop / np.maximum(cap, 1e-6), 0)
+            change = np.zeros_like(pop)
+            for dy, dx in ((0, 1), (1, 0)):
+                nb_pop = shift(pop, dy, dx)
+                flow = rate * (pressure - shift(pressure, dy, dx)) * np.minimum(cap, shift(cap, dy, dx)) / 4
+                flow = np.clip(flow, -nb_pop / 4, pop / 4)
+                if dy == 1:
+                    flow[-1] = 0          # the bottom row has no neighbour below
+                change -= flow
+                change += shift(flow, -dy, -dx) if dx else np.vstack([np.zeros_like(flow[:1]), flow[:-1]])
+            pop += change
+            np.maximum(pop, 0, out=pop)
         pop[pop < 1] = 0   # nobody left
         state.cells["subsistence"] = np.where(pop > 0, mode, 0).astype(np.uint8)
         self._stats(state, famine=famine, drowned=drowned)

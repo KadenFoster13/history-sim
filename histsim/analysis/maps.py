@@ -8,7 +8,8 @@ from ..record.reader import RunReader
 
 # forage (gold), herd (orange), farm (crimson: stands out on green land)
 MODE_COLOURS = {1: (0.95, 0.80, 0.35), 2: (0.85, 0.45, 0.15), 3: (0.78, 0.12, 0.40)}
-MAP_KINDS = ("people", "density", "cultures", "families", "arrival")
+MAP_KINDS = ("people", "density", "cultures", "families", "states", "arrival")
+WAR_RED = np.array([0.85, 0.08, 0.08])
 BACKGROUNDS = ("terrain", "biomes", "white")    # what maps are drawn over
 TOWN_MIN = 2000
 WHITE_LAND, WHITE_SEA = (0.97, 0.97, 0.96), (0.80, 0.87, 0.93)
@@ -38,7 +39,7 @@ def base_map(world, background="terrain"):
     return _BASE[key].copy()
 
 
-def people_map(world, layers, tables=None, background="terrain"):
+def people_map(world, layers, tables=None, background="terrain", year=None):
     """How people live: forager (gold), herder (orange), farmer (crimson); stronger = denser."""
     img = base_map(world, background)
     pop = layers["population"]
@@ -52,7 +53,7 @@ def people_map(world, layers, tables=None, background="terrain"):
     return np.clip(img, 0, 1)
 
 
-def density_map(world, layers, tables=None, background="terrain"):
+def density_map(world, layers, tables=None, background="terrain", year=None):
     """People per km2 on a log scale."""
     from matplotlib import colormaps
     img = base_map(world, background)
@@ -64,7 +65,7 @@ def density_map(world, layers, tables=None, background="terrain"):
     return img
 
 
-def culture_map(world, layers, tables=None, background="terrain"):
+def culture_map(world, layers, tables=None, background="terrain", year=None):
     """Each culture in its own colour (related cultures in similar colours)."""
     img = base_map(world, background)
     cult = layers.get("culture")
@@ -76,7 +77,7 @@ def culture_map(world, layers, tables=None, background="terrain"):
     return img
 
 
-def family_map(world, layers, tables=None, background="terrain"):
+def family_map(world, layers, tables=None, background="terrain", year=None):
     """Language families: every culture coloured by the family its language belongs to."""
     img = base_map(world, background)
     cult = layers.get("culture")
@@ -86,6 +87,51 @@ def family_map(world, layers, tables=None, background="terrain"):
     here = cult > 0
     img[here] = colours[cult[here]] * 0.85 + img[here] * 0.15
     return img
+
+
+def state_map(world, layers, tables=None, background="terrain", year=None):
+    """States in their colours with darker borders; stateless land left plain; fronts of the
+    wars being fought in `year` in red."""
+    img = base_map(world, background)
+    own = layers.get("state")
+    if own is None or not tables or not tables.get("states"):
+        return img
+    colours = state_colours(tables)
+    here = own > 0
+    img[here] = colours[own[here]] * 0.8 + img[here] * 0.2
+    from worldgen.generator import shift
+    border = np.zeros(own.shape, bool)
+    for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        border |= (shift(own, dy, dx) != own) & here
+    img[border] *= 0.55
+    for a, b in active_war_pairs(tables, year):
+        front = np.zeros(own.shape, bool)
+        for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+            nb = shift(own, dy, dx)
+            front |= ((own == a) & (nb == b)) | ((own == b) & (nb == a))
+        img[front] = WAR_RED
+    return img
+
+
+def state_colours(tables):
+    """An (n, 3) colour lookup by state id."""
+    states = tables["states"]
+    out = np.full((len(states), 3), 0.6)
+    for st in states:
+        if st is not None:
+            out[st["id"]] = st["colour"]
+    return out
+
+
+def active_war_pairs(tables, year):
+    """(attacker, defender) pairs at war in `year`."""
+    if year is None:
+        return []
+    pairs = []
+    for war in tables.get("wars") or []:
+        if war["started"] <= year and (war["ended"] is None or war["ended"] > year):
+            pairs += [(a, d) for a in war["attackers"] for d in war["defenders"]]
+    return pairs
 
 
 def culture_colours(tables, by_family=False):
@@ -142,7 +188,7 @@ def _short_number(n):
     return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else f"{n:.0f}"
 
 
-def arrival_map(world, layers, tables=None, background="terrain"):
+def arrival_map(world, layers, tables=None, background="terrain", year=None):
     """When people first arrived (before year 0), from early (dark) to late (light); grey = nobody yet."""
     from matplotlib import colormaps
     img = base_map(world, background)
@@ -171,7 +217,7 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
         span = run.last_year - run.first_year
         years = [run.first_year + round(span * f / 5 / 100) * 100 for f in range(6)]
     draw = {"people": people_map, "density": density_map, "cultures": culture_map,
-            "families": family_map, "arrival": arrival_map}[kind]
+            "families": family_map, "states": state_map, "arrival": arrival_map}[kind]
     tables = run.tables()
     cols = 2
     rows = (len(years) + 1) // cols
@@ -179,11 +225,14 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
     axes = fig.subplots(rows, cols, squeeze=False)
     for ax, year in zip(axes.ravel(), years):
         layers = run.layers_at(year)
-        ax.imshow(draw(world, layers, tables, background=background), interpolation="nearest")
+        ax.imshow(draw(world, layers, tables, background=background, year=year), interpolation="nearest")
         if kind != "arrival":
             draw_towns(ax, layers, tables)
         pop = layers.get("population")
         total = f", {pop.sum() / 1e6:,.1f} million people" if pop is not None else ""
+        own = layers.get("state")
+        if own is not None and kind == "states":
+            total += f", {len(np.unique(own[own > 0]))} states"
         cult = layers.get("culture")
         if cult is not None and kind in ("cultures", "families"):
             alive = np.unique(cult[cult > 0])
@@ -200,6 +249,7 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
               "density": "people per km2 (log scale, dark to bright)",
               "cultures": "cultures (related ones in similar colours); dots = towns",
               "families": "language families; dots = towns",
+              "states": "states (darker edges = borders, red = war fronts); dots = towns",
               "arrival": "when people arrived: dark = earliest, light = latest, grey = not yet reached"}[kind]
     fig.suptitle(f"World {run.meta['world_seed']}, history seed {run.meta['sim_seed']}: {legend}", fontsize=11)
     style_figure(fig, axes.ravel(), colours)

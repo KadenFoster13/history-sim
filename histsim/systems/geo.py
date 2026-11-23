@@ -10,6 +10,44 @@ def cell_area_km2(world):
     return (kpp * kpp * np.maximum(np.cos(np.radians(world.grid.lat)), 0.01)).astype(np.float32)
 
 
+def cell_scale(world, cfg):
+    """How big this world's cells are compared with the 800-px world the rules were tuned
+    on (1.0 there, 0.5 at 1600 px). Rules that work cell by cell use it to stay the same in
+    km and km2 at any map size:
+      speeds (a front moving one cell at a time)   rate / scale
+      diffusion (migration between neighbours)     rate / scale**2
+      chances per cell (per km2 of land)           rate * scale**2
+      chances per frontier cell (per km of front)  rate * scale
+      sizes counted in cells                       cells / scale**2
+    """
+    return float(cfg.reference_width / world.ocean.shape[1])
+
+
+def rounds_for(scale):
+    """Rounds per step for rules that move a front one cell at a time: on finer maps a
+    front must cross more cells in the same years (one round can't cross two cells)."""
+    return max(1, int(round(1 / scale)))
+
+
+def band(values, scale):
+    """A river or coast mask (or values) as a band of the same width in km as on the 800-px
+    world, where it is one ~50 km cell wide: widened on finer maps; on coarser maps a cell
+    is only partly in the band, so the values (as floats) are scaled down by cell width."""
+    if scale > 1:
+        return np.asarray(values).astype(np.float32) / scale
+    r = max(0, int(round(1 / scale)) - 1)
+    if r == 0:
+        return values
+    from scipy.ndimage import maximum_filter
+    out = maximum_filter(np.asarray(values).astype(np.float32), size=2 * r + 1, mode=("nearest", "wrap"))
+    return out.astype(np.asarray(values).dtype)
+
+
+def cells_for(cells, scale):
+    """A size in cells tuned on the 800-px world, at this world's cell size."""
+    return max(1, int(round(cells / scale ** 2)))
+
+
 def neighbour_count(mask):
     """How many of each cell's 4 neighbours are in `mask` (wraps east-west)."""
     m = mask.astype(np.int8)
