@@ -1,7 +1,7 @@
 """States: chiefdoms, city-states, kingdoms and empires; territory, war, peace and breakup.
 
-Formation   where towns have grown among farmers, a chief may rise and found a chiefdom
-            around one; dense herders may form a confederation of their own. Farmland
+Formation   where towns have grown among farmers (or farmers crowd the land), a chief may
+            rise and found a chiefdom; dense herders may form a confederation of their own. Farmland
             hemmed in by desert, mountains or sea forms states sooner and more often
             (Carneiro's circumscription: losers have nowhere to flee, so wars end in
             subjects and tribute, not migration - the Nile, Mesopotamia, coastal Peru).
@@ -9,7 +9,12 @@ Territory   a state's grip on a cell is its strength (people, weighted for herde
             horsemanship, times its cohesion) fading with travel distance from the
             capital: rough country, forests and mountains cost more distance than open
             plains, so borders follow the land. Strong states take in stateless villages
-            nearby; how far they reach grows with their size.
+            nearby, for what they are worth (farmers to tax: sparse foragers' and herders'
+            land, tundra and desert stay outside); how far they reach grows with their size
+            and with the technology of rule (writing, roads, riding, bureaucracy).
+Growth      comes in bursts: a young dynasty is eager to expand, the drive fades with age
+            and a new ruling house may revive it; a state digesting recent gains holds back.
+            Between bursts borders hold for long stretches.
 War         rulers decide (see agents/) to attack a neighbour when clearly stronger along
             the shared border, more readily when it is busy elsewhere. Along the front each
             cell may change hands, depending on both sides' local strength and on defence:
@@ -20,10 +25,19 @@ War         rulers decide (see agents/) to attack a neighbour when clearly stron
 Cohesion    (Turchin's "asabiya") grows in states facing other peoples on long frontiers
             and fades in comfortable cores. Young frontier states rise; old empires, mostly
             interior, lose cohesion, and with it the strength to hold distant provinces.
+            Bureaucracy and writing let big states hold together; written law and monuments
+            slow the loss.
 Breakup     distant regions, especially of other cultures, may rebel and become
-            independent; the weaker the state's cohesion, the more readily.
-Kinds       chiefdom, city-state (a single city and its fields), kingdom, empire (millions
-            of people or many peoples); named in the rulers' language.
+            independent; the weaker the state's cohesion, the more readily (written law
+            calms them). Collapsing states and weak ones let poor outlying land go back to
+            governing itself.
+Kinds       chiefdom (small, ~100 km reach, raids more than conquers, dissolves back into
+            villages within a few generations unless it grows into a kingdom), city-state
+            (a single city and its fields), kingdom, empire (millions of people or many
+            peoples); named in the rulers' language.
+Arms        a state fights with what its capital's people know: copper, bronze or iron
+            weapons, chariots, professional armies; walls defend its towns, siegecraft
+            breaches its enemies'.
 """
 import colorsys
 
@@ -64,6 +78,7 @@ class States(System):
     def setup(self, state):
         cfg, world = state.config, state.world
         self.every = cfg.step_years
+        self.cfg = cfg
         self.scale = cell_scale(world, cfg)
         self.rng = state.rng.get("states")
         self.name_rng = state.rng.get("names")
@@ -100,6 +115,8 @@ class States(System):
         self.alliances = {}          # (a, b) -> year the alliance ends
         self.cohesion = np.zeros(1)
         self.aggression = np.zeros(1)
+        self.drive = np.zeros(1)          # drive to expand (0..1): high in a young dynasty
+        self.gained = np.zeros(1)         # recent gains still being digested (share of the state)
         self.ruler_culture = np.zeros(1, np.int64)
         self._last_admin = self._last_decide = -10 ** 9
         self._first_kingdom = self._first_empire = False
@@ -121,12 +138,26 @@ class States(System):
         flat = own.ravel()
         self.people = np.bincount(flat, weights=pop.ravel(), minlength=n)
         self.cell_count = np.bincount(flat, minlength=n)
+        knows = self._knows(state, n)
+        self.knows = knows
         military = pop * (1 + cfg.herder_military * ((mode == HERDING) & self._horses(state)))
-        self.military = np.bincount(flat, weights=military.ravel(), minlength=n)
+        # Weapons and armies: the best metal its core works, chariots, professional soldiers.
+        arms = 1 + np.maximum.reduce([cfg.copper_war * knows["copper"], cfg.bronze_war * knows["bronze"],
+                                      cfg.iron_war * knows["iron"]]) \
+            + cfg.chariot_war * knows["chariot"] + cfg.armies_war * knows["armies"]
+        self.military = np.bincount(flat, weights=military.ravel(), minlength=n) * arms
         self.power = self.military * self.cohesion[:n]
         self.reach = cfg.reach_km * (1 + cfg.reach_growth * np.log10(1 + self.people / 1e5))
+        # The technology of rule carries a state's grip further.
+        self.reach *= (1 + cfg.writing_reach * knows["writing"] + cfg.roads_reach * knows["roads"]
+                       + cfg.riding_reach * knows["riding"] + cfg.bureaucracy_reach * knows["bureaucracy"])
         chief = np.array([r is not None and r["kind"] == "chiefdom" for r in self.records[:n]])
+        self.chief = chief
         self.reach[:len(chief)][chief] *= cfg.chiefdom_reach         # chiefs rule only nearby
+        # What each cell is worth to a state: the people it can tax (farmers fully, herders
+        # and foragers hardly), per km2.
+        way = np.array([0, cfg.worth_foragers, cfg.worth_herders, 1.0], np.float32)[mode]
+        self.worth = np.clip(pop * way / np.maximum(self.area, 1e-6) / cfg.worth_density, 0, 1).astype(np.float32)
         dist = state.cells["state_distance"]
         if self.scale != 1:
             # Measured to cell centres, which lie half a cell inside a border: on coarse maps
@@ -134,6 +165,26 @@ class States(System):
             dist = np.maximum(dist + 25.0 * (self.scale - 1), 0)
         decay = np.exp(-np.where(np.isfinite(dist), dist, 1e9) / self.reach[own])
         self.local = np.where(own > 0, np.sqrt(self.power[own]) * decay, 0).astype(np.float32)
+
+    def _refresh_new(self, state):
+        """Per-state lookups for states founded since the last summary."""
+        n = len(self.records)
+        if len(self.chief) < n:
+            self.knows = self._knows(state, n)
+            self.chief = np.array([r is not None and r["kind"] == "chiefdom" for r in self.records[:n]])
+
+    def _knows(self, state, n):
+        """For each technology of rule and war, which states know it (what their capital's
+        people know: a state uses what its core knows)."""
+        from ..tech import INDEX
+        tech = state.cells.get("tech")
+        keys = ("copper", "bronze", "iron", "chariot", "armies", "writing", "roads", "riding",
+                "bureaucracy", "law", "monuments", "walls", "siegecraft")
+        if tech is None or n == 0:
+            return {k: np.zeros(n, np.float32) for k in keys}
+        caps = np.array([r["capital"] if r is not None else 0 for r in self.records[:n]], np.int64)
+        known = tech.ravel()[caps]
+        return {k: ((known >> np.uint64(INDEX[k])) & np.uint64(1)).astype(np.float32) for k in keys}
 
     def _circumscription(self, state):
         """0..1: good farmland whose surroundings (~200 km) are mostly poor land or sea."""
@@ -159,6 +210,7 @@ class States(System):
         self._summary(state)
         self._update_cohesion(state)
         self._form(state)
+        self._refresh_new(state)
         rounds = rounds_for(self.scale)         # fronts cross more cells on fine maps
         for k in range(rounds):
             if k:
@@ -200,10 +252,38 @@ class States(System):
         front_people = np.bincount(own.ravel(), weights=(pop * frontier).ravel(), minlength=n)
         f = np.minimum(front_people / np.maximum(self.people, 1e-9) / max(self.scale, 1), 1.0)   # coarse cells: part of a cell
         a = self.cohesion[:n]
+        k = self.knows
         # Big states also overextend: elites multiply and quarrel, provinces drift apart.
-        overextension = 1 + self.people / cfg.overextension_people
-        da = dt * (cfg.cohesion_gain * f * a * (1 - a) - cfg.cohesion_loss * overextension * (1 - f) * a)
+        # Scribes and officials (bureaucracy, writing) let much bigger states hold together.
+        hold = cfg.overextension_people * (1 + cfg.bureaucracy_hold * k["bureaucracy"] + cfg.writing_hold * k["writing"])
+        overextension = 1 + self.people / hold
+        # Written law and great monuments slow the loss; chiefs' authority fades fast.
+        loss = cfg.cohesion_loss * (1 - cfg.law_cohesion * k["law"] - cfg.monument_cohesion * k["monuments"])
+        loss = loss * np.where(self.chief[:n], cfg.chiefdom_fade, 1.0)
+        da = dt * (cfg.cohesion_gain * f * a * (1 - a) - loss * overextension * (1 - f) * a)
         self.cohesion[:n] = np.clip(a + da, 0.02, 1.0)
+        # The drive to expand fades as a dynasty ages; a new ruling house may revive it; a
+        # state still digesting recent gains holds back.
+        alive = np.array([r is not None and r["ended"] is None for r in self.records[:n]])
+        self.drive[:n] *= np.exp(-dt / cfg.drive_years)
+        renew = alive & (self.rng.random(n) < 1 - np.exp(-dt / cfg.dynasty_years))
+        self.drive[:n] = np.where(renew, np.maximum(self.drive[:n], self.rng.uniform(0.3, 1.0, n)), self.drive[:n])
+        self.gained[:n] *= np.exp(-dt / cfg.digest_years)
+
+    def _drive_now(self, sids):
+        """Drive to expand (0..1), held back by recent gains still being digested."""
+        return self.drive[sids] / (1 + self.gained[sids] / self.cfg.digest_share)
+
+    def _eagerness(self, sids):
+        """How readily states go to war now (about 1 on average; ~0.2 when old or sated)."""
+        cfg = self.cfg
+        return cfg.drive_floor + (2 - 2 * cfg.drive_floor) * self._drive_now(sids)
+
+    def _expanding(self, sids):
+        """0..1: whether states are in a phase of expansion (taking in new land at all):
+        bursts while the drive is high, plateaus in between."""
+        cfg = self.cfg
+        return np.clip((self._drive_now(sids) - cfg.expand_from) / cfg.expand_ramp, 0, 1)
 
     def _horses(self, state):
         """Cells whose people keep horses (riders: herders become formidable)."""
@@ -239,8 +319,17 @@ class States(System):
                                     * (1 + cfg.circumscription_states * circ))
                 for cell in np.flatnonzero(towns & (rng.random(own.shape) < chance)):
                     if own.flat[cell] == 0:
-                        self._found(state, int(cell), radius=max(1, round(1 / self.scale)))   # ~150 km across
+                        # a chiefdom starts as its seat and the land just around it
+                        self._found(state, int(cell), radius=int(cfg.chiefdom_seed_cells / self.scale))
         density = pop / np.maximum(self.area, 1e-6)
+        # Chiefs also rise among dense farming villages without a town (a big man's following
+        # becomes a chiefdom): this fills the land between states once farmers crowd it.
+        dense = (mode == FARMING) & (own == 0) & old_farming & (density >= cfg.chief_density)
+        if dense.any():
+            chance = 1 - np.exp(-cfg.chief_rate * self.scale ** 2 * dt)
+            for cell in np.flatnonzero(dense & (rng.random(own.shape) < chance)):
+                if own.flat[cell] == 0:
+                    self._found(state, int(cell), radius=int(cfg.chiefdom_seed_cells / self.scale))
         herders = (mode == HERDING) & (own == 0) & (density >= cfg.herder_state_density) & self._horses(state)
         if herders.any() and rng.random() < 1 - np.exp(-cfg.herder_state_rate * dt):
             cells = np.flatnonzero(herders)
@@ -283,10 +372,13 @@ class States(System):
             "founded": state.year, "ended": None, "fate": None, "parent": parent,
             "colour": [round(float(x), 3) for x in colorsys.hsv_to_rgb(h, s, v)],
             "peak_people": 0.0, "peak_cells": 0, "peak_year": state.year,
+            "kinds": [[state.year, "chiefdom"]],                # (year, kind) as it changes
         })
         self._grow_arrays(len(records))
         self.cohesion[sid] = cohesion if cohesion is not None else self.rng.uniform(0.5, 0.8)
         self.aggression[sid] = float(np.exp(self.rng.normal(0, 0.45)))
+        self.drive[sid] = self.rng.uniform(0.5, 1.0)         # a new state (or dynasty) is eager
+        self.gained[sid] = 0.0
         self.ruler_culture[sid] = culture
         own.flat[cells] = sid
         own.flat[cell] = sid if pop.flat[cell] > 0 else own.flat[cell]
@@ -298,6 +390,8 @@ class States(System):
             extra = n - len(self.cohesion) + 64
             self.cohesion = np.concatenate([self.cohesion, np.zeros(extra)])
             self.aggression = np.concatenate([self.aggression, np.ones(extra)])
+            self.drive = np.concatenate([self.drive, np.zeros(extra)])
+            self.gained = np.concatenate([self.gained, np.zeros(extra)])
             self.ruler_culture = np.concatenate([self.ruler_culture, np.zeros(extra, np.int64)])
 
     def _name(self, state, culture, cell):
@@ -349,16 +443,31 @@ class States(System):
         # Resistance from how many people live there per km2 (the same at any map resolution).
         density = pop / np.maximum(self.area, 1e-6)
         ratio = best_local / (cfg.absorb_resistance * np.sqrt(np.maximum(density, 1e-3) * 2500))
-        way = np.array([0, cfg.absorb_foragers, cfg.absorb_herders, 1.0], np.float32)[mode]
+        # Land is taken in for what it is worth (farmers to tax), by states eager to grow:
+        # sparse foragers' and herders' land, tundra, desert and deep forest stay outside.
+        way = self.worth * self._expanding(best_owner)
         # Borders fill in rather than reach out: a village half surrounded by a state joins
         # readily, one at the tip of a thin finger hardly at all (no stringy borders).
         hold = self._surrounded(own, best_owner)
         compact = np.clip((hold - 1) / 2, 0, 2)
+        # (a state of a few cells grows outward all round: it has no borders to fill in yet)
+        counts = self.cell_count[np.minimum(best_owner, len(self.cell_count) - 1)]
+        compact = np.where(counts <= cells_for(4, self.scale), np.maximum(compact, 0.5), compact)
         chance = 1 - np.exp(-cfg.absorb_rate / (self.scale * rounds) * dt * np.clip(ratio - 1, 0, 1) * way * compact)
         take = free & (best_owner > 0) & (self.rng.random(own.shape) < chance)
         if take.any():
             own[take] = best_owner[take]
+            self._gain(best_owner[take])
             self._patch_distances(state, take)
+
+    def _gain(self, winners):
+        """Cells just gained, per state: still to be digested."""
+        n = len(self.records)
+        got = np.bincount(np.asarray(winners, np.int64).ravel(), minlength=n)[:n]
+        held = np.zeros(n)
+        m = min(n, len(self.cell_count))
+        held[:m] = self.cell_count[:m]
+        self.gained[:n] += got / np.maximum(held, 1)
 
     # ------------------------------------------------------------------ war
     def _war_keys(self):
@@ -382,7 +491,12 @@ class States(System):
         capitals = np.zeros(own.shape, bool)
         for sid in self.alive_ids():
             capitals.flat[records[sid]["capital"]] = True
-        defence = self.defence + cfg.town_defence * town + cfg.capital_defence * capitals
+        # Walls (if the defender builds them) make towns and capitals harder to take;
+        # siegecraft (if the attacker knows it) undoes much of that.
+        walls = self.knows["walls"][own] if len(self.knows["walls"]) else 0
+        works = (cfg.town_defence * town + cfg.capital_defence * capitals) * (1 + cfg.walls_defence * walls)
+        base_defence = self.defence
+        siege = self.knows["siegecraft"]
         open_defence = self.hill_defence
         best_p = np.zeros(own.shape, np.float32)
         best_owner = np.zeros_like(own)
@@ -397,6 +511,7 @@ class States(System):
                 continue
             push = cfg.war_edge * np.log(np.maximum(shift(self.local, dy, dx), 1e-9)
                                          / np.maximum(self.local, 1e-9))
+            defence = base_defence + works * (1 - cfg.siege_breach * siege[attacker])
             if self.scale > 1:
                 p = self._coarse_take(cfg.war_rate * dt, push, open_defence, defence, capitals)
             else:
@@ -420,6 +535,7 @@ class States(System):
             intensity.flat[cells] *= 1 - cfg.conquest_intensity_loss
         self._deaths += float(dead.sum())
         own.flat[cells] = winners
+        self._gain(winners)
         for a, b in zip(winners, losers):
             war = self.wars.get(self.pair_war.get((min(a, b), max(a, b))))
             if war is not None:
@@ -540,8 +656,13 @@ class States(System):
         for sid, nbs in neighbours.items():
             if self.people[sid] < cfg.min_war_people:
                 continue
+            # Temper x eagerness: a young, unsated dynasty attacks readily, an old or busy one
+            # rarely; chiefs raid more than they conquer.
+            temper = float(self.aggression[sid] * self._eagerness(np.array([sid]))[0])
+            if self.chief[sid] if sid < len(self.chief) else False:
+                temper *= cfg.chiefdom_war
             sit = Situation(id=sid, year=year, power=float(self.power[sid]), cohesion=float(self.cohesion[sid]),
-                            aggression=float(self.aggression[sid]), wars=wars_of.get(sid, 0))
+                            aggression=temper, wars=wars_of.get(sid, 0))
             for other, count, ratio in nbs:
                 pair = (min(sid, other), max(sid, other))
                 sit.neighbours.append(Neighbour(
@@ -690,6 +811,7 @@ class States(System):
         self._summary(state)
         self._secessions(state)
         self._collapses(state)
+        self._fall_back(state)
         self._summary(state)
         n = len(records)
         cult = state.cells.get("culture")
@@ -741,6 +863,7 @@ class States(System):
             rec["empire_to"] = state.year
         rec["kind"] = kind
         rec["title"] = TITLES[kind].format(rec["name"])
+        rec.setdefault("kinds", []).append([state.year, kind])
         if kind == "kingdom" and not self._first_kingdom:
             self._first_kingdom = True
             state.event("state", f"The {rec['title']}, ruled from {rec['capital_name']}, is the world's first kingdom.",
@@ -817,6 +940,30 @@ class States(System):
                 own[mask] = best
                 self._end_state(state, sid, f"absorbed by the {records[best]['title']}")
 
+    def _fall_back(self, state):
+        """Chiefdoms whose chiefs have lost their hold dissolve back into villages (they rise
+        and fall within a few generations); weak states lose poor land beyond their reach,
+        which goes back to governing itself."""
+        cfg = state.config
+        own = state.cells["state"]
+        records = state.tables["states"]
+        self._summary(state)             # include states born in this check
+        for sid in list(self.alive_ids()):
+            if self.chief[sid] and self.cohesion[sid] < cfg.chiefdom_dissolve:
+                own[own == sid] = 0
+                self._end_state(state, sid, "dissolved")
+        dist = state.cells["state_distance"]
+        beyond = np.where(np.isfinite(dist), dist, 1e6) / np.maximum(self.reach[own], 1) - 1
+        weak = 1 - self.cohesion[own]
+        poor = self.worth < cfg.fallback_worth
+        capitals = np.zeros(own.shape, bool)
+        for sid in self.alive_ids():
+            capitals.flat[records[sid]["capital"]] = True
+        hazard = cfg.admin_years / cfg.fallback_years * np.clip(beyond, 0, 2) * weak
+        drop = (own > 0) & poor & ~capitals & (self.rng.random(own.shape) < 1 - np.exp(-hazard))
+        if drop.any():
+            own[drop] = 0
+
     # --------------------------------------------------------- secessions
     def _collapses(self, state):
         """A big state whose cohesion has run out falls apart at once into successor states,
@@ -831,6 +978,10 @@ class States(System):
                     or self.cohesion[sid] >= cfg.collapse_cohesion):
                 continue
             cells = np.flatnonzero(own.ravel() == sid)
+            # Poor outlying land goes back to governing itself; the rest splits among successors.
+            freed = cells[(self.worth.ravel()[cells] < cfg.fallback_worth) & (cells != records[sid]["capital"])]
+            own.ravel()[freed] = 0
+            cells = np.setdiff1d(cells, freed)
             k = int(np.clip(len(cells) * self.scale ** 2 / cfg.collapse_cells_per_successor, 2, 8))
             score = pop[cells] + (size.ravel()[cells] * 10 if size is not None else 0)
             # Successor seats: the capital, then great towns far from those already chosen.
@@ -863,6 +1014,7 @@ class States(System):
                 if pop[part].sum() >= 2 * cfg.kingdom_people:
                     rec = records[new]
                     rec["kind"], rec["title"] = "kingdom", TITLES["kingdom"].format(rec["name"])
+                    rec["kinds"] = [[state.year, "kingdom"]]
                 pair = (min(sid, new), max(sid, new))
                 self.truces[pair] = state.year + int(self.rng.integers(*cfg.truce_years))
                 born.append(new)
@@ -892,6 +1044,7 @@ class States(System):
         gap = np.where(cult == ruler, 0.0, np.where(families[cult] == families[ruler], cfg.related_gap,
                                                     cfg.foreign_gap))
         sep = (np.where(np.isfinite(dist), dist, 1e6) / np.maximum(reach, 1) + gap) * (1.5 - self.cohesion[own])
+        sep = sep - cfg.law_loyalty * self.knows["law"][own]          # written law: fewer revolts
         # (never so small that the new state counts as a statelet, on coarse maps too)
         min_rebel = max(cells_for(cfg.min_rebel_cells, self.scale), cells_for(2, self.scale) + 1)
         restless = (own > 0) & (sep > cfg.secession_threshold) & (self.cell_count[own] >= min_rebel * 2)
@@ -927,6 +1080,7 @@ class States(System):
             if pop[cells].sum() >= 2 * cfg.kingdom_people:    # a big province breaks away as a kingdom
                 rec = records[new]
                 rec["kind"], rec["title"] = "kingdom", TITLES["kingdom"].format(rec["name"])
+                rec["kinds"] = [[state.year, "kingdom"]]
             pair = (min(sid, new), max(sid, new))
             self.truces[pair] = state.year + int(self.rng.integers(*cfg.truce_years))
             if self._notable(sid, sid) or pop[cells].sum() >= max(NOTABLE, self._world_people * self._notable_share) / 3:

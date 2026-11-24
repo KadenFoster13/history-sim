@@ -78,6 +78,77 @@ class StateTests(unittest.TestCase):
         self.assertTrue(p[0] > p[1] > p[2])
 
 
+class GrowthTests(unittest.TestCase):
+    """Phase 4 step 2: the technology of rule, expansion in pulses, land by its worth,
+    chiefdoms that dissolve, land falling back."""
+
+    def test_technology_of_rule(self):
+        from histsim.tech import bit
+        st = SIM.state
+        polity = st.tables["polity"]
+        polity._summary(st)
+        sid = max(polity.alive_ids(), key=lambda s: polity.people[s])
+        cap = st.tables["states"][sid]["capital"]
+        tech = st.cells["tech"]
+        saved = tech.flat[cap]
+        try:
+            tech.flat[cap] = 0
+            polity._summary(st)
+            reach0, army0 = polity.reach[sid], polity.military[sid]
+            tech.flat[cap] = np.uint64(bit("writing") | bit("bureaucracy") | bit("roads") | bit("bronze")
+                                       | bit("copper") | bit("counting") | bit("wheel"))
+            polity._summary(st)
+            self.assertGreater(polity.reach[sid], reach0 * 1.5)       # records, officials, roads
+            self.assertGreater(polity.military[sid], army0 * 1.2)     # bronze weapons
+            self.assertEqual(polity.knows["bureaucracy"][sid], 1)
+        finally:
+            tech.flat[cap] = saved
+            polity._summary(st)
+
+    def test_expansion_comes_in_pulses(self):
+        polity = SIM.state.tables["polity"]
+        sid = next(polity.alive_ids())
+        drive, gained = polity.drive[sid], polity.gained[sid]
+        try:
+            polity.drive[sid], polity.gained[sid] = 1.0, 0.0
+            self.assertEqual(float(polity._expanding(np.array([sid]))[0]), 1.0)     # a young dynasty
+            polity.gained[sid] = 1.0
+            self.assertLess(float(polity._expanding(np.array([sid]))[0]), 0.5)      # digesting its gains
+            polity.drive[sid], polity.gained[sid] = 0.1, 0.0
+            self.assertEqual(float(polity._expanding(np.array([sid]))[0]), 0.0)     # an old one holds
+        finally:
+            polity.drive[sid], polity.gained[sid] = drive, gained
+
+    def test_land_is_taken_for_its_worth(self):
+        from histsim.systems.population import FARMING, FORAGING
+        st = SIM.state
+        polity = st.tables["polity"]
+        polity._summary(st)
+        mode, pop = st.cells["subsistence"], st.cells["population"]
+        farm, forage = (mode == FARMING) & (pop > 0), (mode == FORAGING) & (pop > 0)
+        self.assertGreater(np.median(polity.worth[farm]), 5 * np.median(polity.worth[forage]))
+        self.assertTrue(((polity.worth >= 0) & (polity.worth <= 1)).all())
+
+    def test_kinds_are_recorded(self):
+        for rec in SIM.state.tables["states"][1:]:
+            self.assertEqual(rec["kinds"][0][0], rec["founded"])
+            self.assertEqual(rec["kinds"][-1][1], rec["kind"])
+
+    def test_chiefdoms_dissolve(self):
+        sim = Simulation(WORLD, seed=3, systems=default_systems())
+        sim.run(7000)
+        st = sim.state
+        polity = st.tables["polity"]
+        polity._summary(st)
+        chiefs = [s for s in polity.alive_ids() if polity.chief[s]]
+        self.assertTrue(chiefs)
+        sid = chiefs[0]
+        polity.cohesion[sid] = 0.01
+        polity._fall_back(st)
+        self.assertEqual(st.tables["states"][sid]["fate"], "dissolved")
+        self.assertFalse((st.cells["state"] == sid).any())        # its villages govern themselves
+
+
 class DecisionTests(unittest.TestCase):
     def test_strong_rulers_attack_weak_neighbours(self):
         ai = StateAI(DEFAULT, np.random.default_rng(0))

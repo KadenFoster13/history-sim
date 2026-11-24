@@ -574,8 +574,9 @@ class HistoryViewer:
                 self._scale_bar("viridis", ticks, "when people first arrived",
                                 extra=[((0.6, 0.6, 0.6), "Not reached yet")])
         elif self.mode == "States":
-            items = self._state_swatches(layers, tables)
-            self._swatches(items + [(tuple(WAR_RED), "War front"), town])
+            items = self._state_swatches(layers, tables, n=4)
+            self._swatches(items + [(tuple(WAR_RED), "War front"), town],
+                           note="pale hatched = chiefdom, solid = kingdom, bold edge = empire")
         elif self.mode == "Technology":
             self._swatches([(AGE_COLOURS[k], AGE_LABELS[k]) for k in (0, 1, 2, 3)] + [town],
                            note="hatched = writing")
@@ -899,6 +900,13 @@ class HistoryViewer:
                 parts.append(f"{AGE_NAMES[int(age_of(known[r, c]))]} age: {shown}")
         elif not (self.world.ocean[r, c] or self.world.lake[r, c]):
             parts.append("nobody lives here")
+        own = layers.get("state")
+        states = tables.get("states") or []
+        if own is not None and 0 < own[r, c] < len(states) and states[own[r, c]]:
+            from ..analysis.maps import kind_at
+            from ..systems.states import TITLES
+            rec = states[own[r, c]]
+            parts.append(TITLES[kind_at(rec, self.source.year)].format(rec["name"]))
         size = layers.get("settlement")
         ids = layers.get("settlement_id")
         places = tables.get("settlements") or []

@@ -89,21 +89,57 @@ def family_map(world, layers, tables=None, background="terrain", year=None):
     return img
 
 
+def kind_at(rec, year):
+    """What a state was (chiefdom, city-state, kingdom, empire) in `year`."""
+    kinds = rec.get("kinds")
+    if not kinds or year is None:
+        return rec["kind"]
+    kind = kinds[0][1]
+    for y, k in kinds:
+        if y <= year:
+            kind = k
+    return kind
+
+
+def state_kinds(tables, year):
+    """An array by state id: 0 chiefdom, 1 city-state or kingdom, 2 empire."""
+    states = tables["states"]
+    out = np.zeros(len(states), np.int8)
+    for st in states:
+        if st is not None:
+            out[st["id"]] = {"empire": 2, "kingdom": 1, "city-state": 1}.get(kind_at(st, year), 0)
+    return out
+
+
 def state_map(world, layers, tables=None, background="terrain", year=None):
     """States in their colours with darker borders; stateless land left plain; fronts of the
-    wars being fought in `year` in red."""
+    wars being fought in `year` in red. Chiefdoms are pale and hatched with thin borders,
+    kingdoms solid, empires solid with bold borders."""
     img = base_map(world, background)
     own = layers.get("state")
     if own is None or not tables or not tables.get("states"):
         return img
     colours = state_colours(tables)
+    kind = state_kinds(tables, year)[own]
     here = own > 0
-    img[here] = colours[own[here]] * 0.8 + img[here] * 0.2
+    chief = here & (kind == 0)
+    solid = here & (kind > 0)
+    img[solid] = colours[own[solid]] * 0.8 + img[solid] * 0.2
+    img[chief] = colours[own[chief]] * 0.45 + img[chief] * 0.55
+    rows, cols = np.indices(own.shape)
+    img[chief & ((rows + cols) % 3 == 0)] *= 0.8          # hatching
     from worldgen.generator import shift
     border = np.zeros(own.shape, bool)
     for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
         border |= (shift(own, dy, dx) != own) & here
-    img[border] *= 0.55
+    img[border & chief] *= 0.75
+    img[border & solid] *= 0.55
+    empire = here & (kind == 2)
+    bold = np.zeros(own.shape, bool)                       # empires: a second ring of border
+    for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        bold |= shift(border & empire, dy, dx) & empire
+    img[bold & ~border] *= 0.6
+    img[border & empire] *= 0.6
     for a, b in active_war_pairs(tables, year):
         front = np.zeros(own.shape, bool)
         for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
@@ -274,7 +310,8 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
               "density": "people per km2 (log scale, dark to bright)",
               "cultures": "cultures (related ones in similar colours); dots = towns",
               "families": "language families; dots = towns",
-              "states": "states (darker edges = borders, red = war fronts); dots = towns",
+              "states": "states: pale hatched = chiefdoms, solid = kingdoms, bold edges = empires; "
+                        "red = war fronts; dots = towns",
               "technology": "metal age: sand = stone, orange = copper, gold = bronze, blue-grey = iron; "
                             "hatched = writing",
               "arrival": "when people arrived: dark = earliest, light = latest, grey = not yet reached"}[kind]

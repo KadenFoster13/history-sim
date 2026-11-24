@@ -86,14 +86,14 @@ and cities with their names, the largest peoples and towns, and recent events.
 | Slower / Faster, `-` / `+` | Years per frame (1 to 500) |
 | Step, `Right` | One jump forward |
 | Year slider (replay) | Jump to any year |
-| Map buttons | People, density, cultures, language families, states (war fronts in red), technology (stone, copper, bronze or iron age; hatched where people write), background only, arrival |
+| Map buttons | People, density, cultures, language families, states (pale hatched = chiefdoms, solid = kingdoms, bold edges = empires; war fronts in red), technology (stone, copper, bronze or iron age; hatched where people write), background only, arrival |
 | Background buttons | Draw the maps over terrain, biomes or plain white (remembered) |
 | Scroll, drag, `R` | Zoom around the cursor, move (sideways turns the map; it wraps), reset |
 | `C` | Cut the map where it crosses the least land (done automatically at the start) |
 | Enhance, `E` | Redraw the area in view 2-8x finer with the world generator's detailed coasts and rivers (zoom in first; takes a few seconds). Clear or `Esc` goes back |
 | Dark / Light, `D` | Dark mode (the same remembered setting as the world viewer) |
 | `S` | Save the view as a PNG in `renders/` |
-| Hover | People, way of life, culture and language family, the technologies known there, town |
+| Hover | People, way of life, culture and language family, the technologies known there, the state (and what kind), town |
 
 To browse worlds visually, use the generator's viewer: `python -m worldgen`.
 

@@ -109,8 +109,10 @@ class SimConfig:
 
     # ------------------------------------------------------------ states
     state_town_min: float = 2000.0      # a town this big may become a chiefdom's seat
-    state_formation_rate: float = 0.004 # yearly chance per stateless town (more for bigger towns)
+    state_formation_rate: float = 0.008 # yearly chance per stateless town (more for bigger towns)
     state_delay_years: float = 4000.0   # ... once farming there is this old (chiefs need surplus, time)
+    chief_density: float = 1.5          # stateless farmers this dense (per km2) may also form a chiefdom
+    chief_rate: float = 0.0005          # ... with this yearly chance per ~50 km cell
     circumscription_states: float = 4.0 # hemmed-in farmland (by desert, mountains, sea) forms states (1 + this)x as often
     circumscription_sooner: float = 0.4 # ... and up to this share sooner
     circumscription_km: float = 200.0   # how far around a cell counts as its surroundings
@@ -121,25 +123,41 @@ class SimConfig:
     reach_km: float = 400.0             # how far a state's grip reaches (km of easy travel; grows
                                         # with its size; rough country counts as longer)
     reach_growth: float = 2.0           # reach x (1 + this x log10(1 + people / 100,000))
-    chiefdom_reach: float = 0.5         # chiefdoms reach only this share as far
-    absorb_rate: float = 0.03           # yearly chance a strong state takes in a stateless village
+    chiefdom_reach: float = 0.4        # chiefdoms reach only this share as far (~100 km)
+    chiefdom_seed_cells: float = 0.5    # a new chiefdom: its seat and this many ~50 km cells around it
+    chiefdom_fade: float = 1.0          # chiefs' hold fades this much faster than a kingdom's
+    chiefdom_dissolve: float = 0.1     # a chiefdom whose cohesion falls below this dissolves
+    chiefdom_war: float = 0.3           # chiefs go to war this much less readily (they raid)
+    absorb_rate: float = 0.1           # yearly chance a strong state takes in a stateless village
     absorb_resistance: float = 1.6      # how hard stateless people resist (x square root of people per
                                         # 2,500 km2 at their density)
-    absorb_foragers: float = 0.15       # ... foragers and herders are harder to take in than farmers
-    absorb_herders: float = 0.3
+    worth_density: float = 0.25          # land is worth taking in fully with this many taxable people
+                                        # per km2: farmers count fully,
+    worth_foragers: float = 0.05        # ... foragers hardly,
+    worth_herders: float = 0.3          # ... herders in part
+    fallback_worth: float = 0.3         # land worth less than this beyond a weak state's reach may
+    fallback_years: float = 300.0       # ... go back to governing itself (typical wait), and is let
+                                        # go when a state collapses
+    drive_years: float = 150.0          # a state's drive to expand fades over about this long
+    dynasty_years: float = 150.0        # typical wait for a new ruling house to revive it
+    digest_years: float = 50.0          # recent gains are digested over about this long ...
+    digest_share: float = 0.3           # ... and gaining this share of the state halves the drive
+    drive_floor: float = 0.2            # eagerness of an old or sated state (a young one: up to 2 - this)
+    expand_from: float = 0.3           # a state takes in new land only while its drive is above this,
+    expand_ramp: float = 0.25           # ... fully from this much above it
     cohesion_gain: float = 0.02         # cohesion growth on frontiers with other peoples (per year)
     cohesion_loss: float = 0.004        # cohesion fading in a state's quiet core (per year)
     overextension_people: float = 10_000_000.0  # ... twice as fast for a state this big, 3x at twice that
     decision_years: int = 10            # rulers weigh war and alliances this often
     war_interval_years: float = 50.0    # typical wait before a clearly stronger state attacks
     war_margin: float = 0.2             # how much stronger (log ratio) a state must feel to attack
-    rivalry: float = 0.06               # ... though neighbours of similar strength fight now and then
+    rivalry: float = 0.03               # ... though neighbours of similar strength fight now and then
     max_wars_per_state: int = 2
     min_war_people: float = 20_000.0    # smaller states don't start wars
     war_edge: float = 1.5               # how much strength counts along a front (higher: big states win more)
-    war_rate: float = 0.12              # yearly chance a front cell changes hands (even fight: half)
+    war_rate: float = 0.08              # yearly chance a front cell changes hands (even fight: half)
     war_years: float = 18.0             # typical length of a war
-    truce_years: tuple = (15, 50)       # truce after a war, years (random in this range)
+    truce_years: tuple = (30, 100)      # truce after a war, years (random in this range)
     conquest_loss: float = 0.05         # share of a cell's people lost when it is conquered
     hill_defence: float = 0.6           # defence bonuses (log strength) for rough ground,
     river_defence: float = 0.4          # ... a great river,
@@ -175,6 +193,25 @@ class SimConfig:
     state_food_bonus: float = 0.0       # farmland in a state feeds this much more (now through
                                         # intensification: states speed it up, see state_intensify)
     ruling_prestige: float = 3.0        # the rulers' culture is this much stronger in its state
+
+    # ------------------------------------------- technology of rule and war (phase 4 step 2)
+    # A state uses what its capital's people know.
+    copper_war: float = 0.1             # army strength + this with copper weapons,
+    bronze_war: float = 0.25            # ... bronze (the best metal counts),
+    iron_war: float = 0.4               # ... iron;
+    chariot_war: float = 0.2            # ... and + this with chariots,
+    armies_war: float = 0.3             # ... professional armies
+    writing_reach: float = 0.2          # reach x (1 + these): records and messengers,
+    roads_reach: float = 0.5            # ... roads,
+    riding_reach: float = 0.2           # ... riders,
+    bureaucracy_reach: float = 0.5      # ... officials
+    bureaucracy_hold: float = 4.0       # overextension begins this much later (x (1 + this)) with
+    writing_hold: float = 0.5           # ... bureaucracy and writing
+    law_cohesion: float = 0.25          # written law slows cohesion loss by this share,
+    monument_cohesion: float = 0.15     # ... monuments by this share
+    law_loyalty: float = 0.3            # written law lowers provinces' restlessness by this much
+    walls_defence: float = 0.5          # walls add this share to town and capital defence
+    siege_breach: float = 0.6           # siegecraft takes away this share of town and capital defence
 
     # --------------------------------------------------------- technology (histsim/tech.py)
     tech_every: int = 10                # technology is found, spread and lost every this many years
