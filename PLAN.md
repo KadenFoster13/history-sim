@@ -577,6 +577,50 @@ the dense cores but less farmland than before, so on the map they look small bes
 town dots; world 31 seed 1 develops late (first kingdom 2325 BCE). Run time about the
 same. For step 5 (with trade) and the empires-as-regional-powers idea.
 
+**Towns and cities (planned 2026-11-24, for steps 3-5).** Measured at 0.6.1 (worlds 31 and 22,
+800 px, seeds 1-6; Earth's ancient city sizes are rough estimates, after Chandler and
+Modelski):
+
+| | 3000 BCE | 2000 BCE | 1000 BCE | 1 CE | Earth, roughly |
+|---|---|---|---|---|---|
+| Towns of 2,000+ | 26 | 54 | 91 | 136 | thousands by 1 CE (the Roman Empire alone had hundreds) |
+| Cities of 10,000+ | 14 | 32 | 59 | 94 | |
+| Cities of 100,000+ | 4 | 12 | 27 | 46 (17-70) | none before ~1000 BCE; perhaps 15-25 at 1 CE |
+| Largest city | 285k | 462k | 587k | 715k (374k-1.1M) | Uruk ~40-80k (3000 BCE); Rome ~0.5-1M (1 CE) |
+| Share in towns | 2% | 4% | 6% | 8% | 5-10% before industry |
+
+The urban share and the largest city at 1 CE fit; cities grow too big too early, there are
+too many very big ones and far too few small towns (Earth's places follow rank-size, about
+ten times as many above each tenfold-smaller size; the sim has 46 / 94 / 136 places of
+100k+ / 10k+ / 2k+ where rank-size from 46 would give ~46 / ~460 / ~2,000+). Why: capitals
+draw a fixed share of their whole state's people from the start (`capital_share`), however
+little the state can move food; each ~160 km neighbourhood gets one central place that
+takes most of its townspeople; and the map keeps one place per ~50 km cell.
+
+Map size changes little: at 400 / 800 / 1600 px (world 31, seeds 1-3, 1 CE) there are 0.81 /
+0.91 / 0.89 towns of 2,000+ and 0.28 / 0.28 / 0.29 cities of 100,000+ per million people, because
+the rules space places in km, not cells. A finer map draws more named small towns but does
+not fix the counts, so the fixes below are in km and people too.
+
+Changes:
+- **Capitals fed by the means to feed them:** what a capital (and any city) can draw is
+  capped by how far food and tribute can be moved: rivers and coasts, then canals, roads,
+  writing and bureaucracy (step 2's knowledge), later trade (step 4) and sailing. Early
+  capitals stay at tens of thousands; great capitals come with empires that can feed them.
+- **A ladder of places (rank-size):** each region's townspeople are split among a main
+  city, a few smaller cities and many market towns (rank-size), not mostly into one
+  place. Each cell keeps its largest place as a named town (as now) plus a count of smaller
+  towns (a number per cell, for stats and the hover), so small towns don't need a cell each.
+- **Towns where goods move (step 4):** trade routes grow towns at crossroads, river ports,
+  fords and coasts, the source of many of Earth's middling cities.
+- **Farming technology (step 3):** the plough, canals and manuring feed denser hinterlands,
+  so towns grow where farming intensifies.
+
+Targets (averages across worlds and seeds): largest city ~30-100k at 3000 BCE, 0.2-1M at
+1 CE; cities of 100,000+ none or a few before 1000 BCE, ~10-30 at 1 CE; towns of 2,000+ at
+least ~10 per million people at 1 CE; urban share 5-10% (unchanged); about the same at any
+map size.
+
 **Economy and trade.**
 - **Surplus and wealth:** each cell produces food beyond its people's needs (from
   intensity) plus goods from local resources (copper, tin, gold, silver, salt, timber,
@@ -624,9 +668,12 @@ Plus the existing checks (population, cities, farming, wars) and 400 vs 800 px.
    empires).
    **Built 2026-11-24 (histsim 0.6.1)**, see "Step 2 as built" above.
 3. Farming technology: plough, terraces, canals (per cell, replacing the global
-   `canal_irrigation`), manuring; re-check population and densities.
+   `canal_irrigation`), manuring; re-check population and densities. Towns and cities:
+   capitals fed only by the means to feed them, and a rank-size ladder of places with small
+   towns counted per cell (see "Towns and cities").
 4. Economy and trade: surplus, wealth, trade routes and goods, trade spreading
-   technology, towns on routes; trade overlay.
+   technology, towns on routes (crossroads, river ports, fords, coasts) and trade feeding
+   cities; trade overlay.
 5. Calibration on worlds 31 and 22 at 800 px, 400 vs 800 px, docs and decision log.
    Versions: histsim 0.6 (technology), 0.7 (trade).
 
@@ -916,6 +963,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | Towns and cities to be reworked in phase 4 steps 3-4: early cities far too big (largest ~285k at 3000 BCE vs Uruk ~40-80k), too many of 100,000+, far too few small towns (top-heavy, not rank-size); urban share and the largest city at 1 CE fit. Plan: capitals capped by the means to feed them (transport and the technology of rule), a rank-size ladder of places with small towns counted per cell, towns on trade routes. Counts per million people barely change with map size |
 | 2026-11-24 | Phase 4 step 2 built (histsim 0.6.1): technology of rule and war (reach, holding together, law, arms, walls, siegecraft), growth in bursts (an expansion drive renewed by new dynasties), land taken in for its worth, chiefdoms that dissolve, poor land falling back, calmer borders; viewer shows chiefdoms, kingdoms and empires. 800 px: border churn 25-30% -> 4-14% a century, chiefdoms ~3,000 km2, cold lands in states 0-4%, people in states 29-74%; largest state still ~5% at 1 CE |
 | 2026-11-24 | State growth to be reshaped in phase 4 step 2: states grew steadily with no pauses or limits, never gave land back, churned ~25-30% of their land a century, and chiefdoms were kingdom-sized. Plan: an expansion drive (pulses and plateaus), absorbing land by its worth, land falling back after collapse, chiefdoms as their own tier, calmer borders, state kinds shown in the viewer. Calibration judged on averages across worlds and seeds, not single runs |
 | 2026-11-24 | Phase 4 step 1 built (histsim 0.6.0): 22 technologies known per cell, found where needs are met and many connected people live, spread to neighbours that can use them, lost where their keepers are gone, named in the inventors' languages; Technology map mode and graphs; no effects yet (rest of history unchanged). 800 px: writing first 4260-1620 BCE with 3-7 inventions, bronze 4640-1060 BCE, iron 2970-660 BCE; later technologies of rule come too soon after writing (step 5) |
