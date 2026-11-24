@@ -326,6 +326,129 @@ states (82-93%; the empire count is fixed in histsim 0.5.1, see the decision log
 thin), while the spread between cores and frontiers is about right; (3) 400 px runs
 come out higher where the seeds already differ by 5000 BCE (where farming starts).
 
+### Technology, economy and trade (phase 4 plan, 2026-11-23)
+**Why now.** What is still off after phase 3 and intensification mostly comes from what
+states and farmers can't yet do: the largest state holds 2-15% of the world (Rome or Han
+20-25% each), time spent as an empire varies from 175 to 1,225 years by seed (Earth 2-4
+centuries), 82-93% of people live in states by 1 CE, canals wait on the
+`canal_irrigation` hook, and nothing spreads goods or ideas between distant places.
+Phase 4 adds technology, then trade, and re-checks the phase 3 tuning on top of them.
+
+**Technology: what it is.**
+- A fixed web of real technologies (`histsim/tech.py`), each with prerequisites, needs
+  (resources nearby or by trade, a tamed species, a minimum population, towns or
+  specialists), a difficulty, and effects. Phase 4 covers about 25, roughly to the end
+  of the ancient world; later phases add more to the same web.
+- **Known per cell** as a bit mask (as tamed species are), so knowledge has a geography:
+  it spreads, fades and survives in places, not by state or culture. States and
+  cultures use what their cells know (a state uses what its core knows).
+- **Discovery:** a small chance per step where the needs are met, rising with people,
+  towns and contact (more minds and more exchange: Kremer, Henrich). Hard technologies
+  need big, connected populations, so they are usually found once or twice and then
+  spread; easy ones (pottery, the plough) arise in several places.
+- **Spread** to neighbouring cells (faster along rivers, coasts and trade routes, and
+  inside a state), only where it can be used (no bronze without copper and tin coming
+  in, no chariots without horses).
+- **Loss:** knowledge that needs specialists fades where towns and people fall below
+  what keeps it alive (Tasmania; writing lost in Greece's dark age), so collapses set
+  places back.
+- **Names and chronicle:** each discovery gets a name in the discoverers' language and
+  an event ("the Kessani learn to smelt bronze"); first discoveries and independent
+  inventions are recorded.
+
+**Technologies in phase 4** (Earth's first dates as a guide; prerequisites in brackets):
+
+| Group | Technology | Earth | Main effect here |
+|---|---|---|---|
+| Farming | pottery | 14,000-9000 BCE | storage: famine milder |
+| | plough [farming, cattle] | ~4000 BCE | rain-fed intensification ceiling up |
+| | terraces [settled farming] | ~3000 BCE | steep land can be intensified |
+| | canals [towns, irrigable land] | ~6000-4000 BCE | `canal_irrigation` per cell: dry irrigable land watered |
+| | manuring and rotation [plough] | ~1000 BCE | rain-fed ceiling up again |
+| Metals | copper working [copper] | ~5000 BCE | small war and tool bonus |
+| | bronze [copper working; copper and tin] | ~3300 BCE | war bonus; drives the tin trade |
+| | iron working [bronze or furnaces; iron] | ~1200 BCE spread | cheap metal for all: war bonus, plough and clearing |
+| Transport | wheel and cart [cattle or horse] | ~3500 BCE | travel cost on open land down |
+| | riding [horse] | ~3500-2000 BCE | herder and state reach up; raids |
+| | chariot [wheel, horse, bronze] | ~2000 BCE | war bonus on open land |
+| | boats and sailing [rivers or coast] | ~3500 BCE | river and coastal travel and trade; sea crossings (deep sea: phase 7) |
+| | roads [state, wheel] | ~2000 BCE+ | travel inside a state cheaper: reach up |
+| Rule | writing [towns, a state] | ~3200 BCE, 3-4 times | records: cohesion lasts, reach up |
+| | counting and calendar [writing or towns] | ~3000 BCE | needed for bureaucracy |
+| | bureaucracy [writing, counting, kingdom] | ~2500 BCE | overextension from a larger size: big states hold together |
+| | law codes [writing] | ~1800 BCE | rebellions rarer |
+| | money (coinage) [metals, trade] | ~600 BCE | trade volume up; taxes |
+| Building and war | monuments [towns, surplus] | ~3000 BCE | prestige: cohesion |
+| | city walls [towns] | ~7000 BCE+ | town defence up |
+| | siegecraft [walls, bureaucracy] | ~900 BCE | town and capital defence down for attackers |
+| | professional armies [bureaucracy, iron] | ~700 BCE | war bonus, wars longer |
+
+**Technology of rule: how states change.** The aim is the plan's old note: a few empires
+can hold a fifth of the world, and empires last 2-4 centuries, not 1,000+ years.
+- Reach grows with writing, roads, riding and bureaucracy; overextension starts at a
+  larger size with bureaucracy (today a fixed 10 million).
+- Cohesion: law codes and monuments slow its loss; collapses stay possible (the empire
+  lifespan target), so these lengthen the life of large states without making them
+  permanent.
+- War: metals, chariots, iron and professional armies add strength; walls and siegecraft
+  move the balance between attacker and defender.
+- Then the phase 3 re-check: empire lifespans, the largest state's share, people in
+  states, and the empires-as-regional-powers idea (states section, "Later").
+
+**Economy and trade.**
+- **Surplus and wealth:** each cell produces food beyond its people's needs (from
+  intensity) plus goods from local resources (copper, tin, gold, silver, salt, timber,
+  fish); a `wealth` layer gathers in towns and on routes.
+- **Trade routes:** every few decades, links between towns and cities by least-cost
+  paths over land, navigable rivers and (with sailing) coasts, chosen by a gravity
+  rule (bigger, richer, closer places trade more) and by what each lacks (tin for
+  bronze-makers, salt, metals). Routes are entities (path, volume, goods) with a
+  per-cell trade-volume layer.
+- **What trade does:** carries technology along routes (much faster than overland
+  diffusion), lets bronze be made far from tin, feeds and enriches towns on routes
+  (bigger cities at crossroads and ports), and gives states income (money, roads). It
+  is also the road that religions (phase 5) and epidemics (phase 6) will travel.
+
+**Viewer and graphs.** A Technology map mode (the age each cell is in: stone, copper,
+bronze, iron, with writing and other marks), a trade overlay (routes by volume), hover
+lines for known technologies and trade; graphs of each technology's share of people,
+first discoveries, trade volume and wealth. Chronicle entries for discoveries.
+
+**Calibration targets (worlds 31 and 22, 800 px; 400 px to iterate):**
+
+| Measure | Earth | Accept about |
+|---|---|---|
+| First writing | ~3200 BCE (3-4 independent inventions) | 5000-1000 BCE, 1-4 inventions |
+| Bronze age begins | ~3300 BCE | 4500-1500 BCE |
+| Iron working spreads | ~1200 BCE | 2500 BCE-500 CE |
+| Wheel, riding, chariot | 3500 / 3000 / 2000 BCE | in that order, within ±1500 years |
+| Coinage | ~600 BCE | 1500 BCE-500 CE |
+| Largest state's share, 1 CE | ~20-25% | 8-30% |
+| Time spent as an empire | 2-4 centuries | 1-6 centuries, and steadier across seeds |
+| People in states, 1 CE | perhaps 60-75% | 50-85% |
+| Longest trade routes, 1 CE | ~6,000 km (Silk Road) | 2,000+ km on big landmasses |
+| Places without metals or writing by 1 CE | the Americas, Australia, much of Africa | some lands left behind |
+
+Plus the existing checks (population, cities, farming, wars) and 400 vs 800 px.
+
+**Steps** (each ends with something to run and watch):
+1. Technology core: the web, per-cell knowledge, discovery, spread and loss, names and
+   chronicle, stats and a Technology map mode; no effects yet. Check discovery dates.
+2. Technology of rule and war: effects on reach, overextension, cohesion and war; the
+   phase 3 re-check (lifespans, largest state, people in states, regional empires).
+3. Farming technology: plough, terraces, canals (per cell, replacing the global
+   `canal_irrigation`), manuring; re-check population and densities.
+4. Economy and trade: surplus, wealth, trade routes and goods, trade spreading
+   technology, towns on routes; trade overlay.
+5. Calibration on worlds 31 and 22 at 800 px, 400 vs 800 px, docs and decision log.
+   Versions: histsim 0.6 (technology), 0.7 (trade).
+
+**Risks.** Run time (per-cell knowledge and route-finding; budget about 25% more);
+everything interacts (technology raises populations and state sizes, which feed
+discovery), so each step is calibrated before the next; a fixed web can make every
+world's history look alike, so needs, chance and loss should leave room for different
+orders and for some lands to go without.
+
 ### Wild plants and animals (worldgen 1.1)
 Each world gets domesticable species with climate ranges and native homelands, blocked
 by oceans and mountains, so not every continent gets every species:
@@ -521,7 +644,7 @@ Each phase ends with something to run, watch and graph.
   other maps distances to the capital are shifted by the difference), and a coarse war
   front crosses open country and then the defended core of a cell, with a capital falling
   when the front reaches its town. 800 px gives exactly the same runs as before.
-  World 31 at 1 CE, all with the 800 px wildlife (worldgen 1.5):
+  World 31 at 1 CE, all with the 800 px wildlife (worldgen 1.5), before intensification (histsim 0.4.2):
 
   | Width | Seeds | People | Farmed | States | In states | Biggest town | Empires ever | Wars/century |
   |---|---|---|---|---|---|---|---|---|
@@ -540,6 +663,19 @@ Each phase ends with something to run, watch and graph.
   peopled late at 400 px). On world 22 a Pacific island chain is still crossable at
   800 px but not at 400 px (its islands are smaller on the coarser map), so people spread
   more slowly there at 400 px.
+
+  **1600 px check with intensification (histsim 0.5.1, 2026-11-23).** World 31, seeds 1-3, to 1 CE:
+
+  | Width | People | Farmed | States | In states | Largest state | Biggest town | Urban | Empires ever | As empire (median) | Wars/century | First kingdom |
+  |---|---|---|---|---|---|---|---|---|---|---|---|
+  | 800 px | 111-262M | 29-38% | 239-387 | 89-93% | 2.7-6.5% | 431-840k | 7.3-9.4% | 15-19 | 175-1,225 y | 48-88 | 5000-3075 BCE |
+  | 1600 px | 177-287M | 41-46% | 362-442 | 89-93% | 1.8-4.7% | 481-1,032k | 7.9-9.9% | 15-24 | 275-425 y | 64-106 | 4075-3550 BCE |
+
+  1600 px sits at the top of the 800 px range or a little above it: about a quarter more
+  people, more land farmed (+7 points), ~20% more states and wars; urban share, people in
+  states, empire counts and the densest farmland (43-53 vs 38-63 per km2) match. Farming
+  reaching more land is the main difference (and the rest follows from it); worth a look
+  if 1600 px becomes a common width, not needed for phase 4.
 
 ## 12. Decision log
 
