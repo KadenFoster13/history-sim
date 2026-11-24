@@ -235,8 +235,10 @@ def people_the_world(world, cfg, rng, voyages=None):
     travel = shelf.fill(_by_biome(world.biome, TRAVEL, 1.5), world)
     slope = shelf.fill(world.slope_m_per_km.astype(np.float32), world)
     travel = travel * (1 + slope / 20)
-    to_land_km = distance_to(walkable)[0] * kpp
-    crossing = ~walkable & ~ice & (to_land_km <= cfg.max_sea_crossing_km / 2)
+    # Distance to the shore: to the edge of the nearest land cell, not its centre, so the
+    # widest sea that can be crossed is the same on maps of any resolution.
+    to_land_km = np.maximum(distance_to(walkable)[0] * kpp - kpp / 2, 0)
+    crossing = ~walkable & ~ice & (to_land_km <= cfg.max_sea_crossing_km / 2 + 0.05 * kpp)   # (cells a hair over 50/100 km)
     # Open water is slow to cross, and much slower far from any shore: short hops are
     # managed early, long ones only late in the 60,000 years (island-hopping).
     sea_cost = 6.0 * (1 + (to_land_km / cfg.sea_crossing_difficulty_km) ** 2)
@@ -249,14 +251,21 @@ def people_the_world(world, cfg, rng, voyages=None):
     score = (big & open_land & (world.temperature_c > 18) & (world.temperature_c < 28)) * (0.3 + world.fresh_water)
     if not score.any():
         score = (walkable * 1.0)
-    flat = score.ravel() / score.sum()
-    origin = int(rng.choice(flat.size, p=flat))
+    f = max(1, w // 400)
+    origin = _pick_homeland(score, 4 * f, rng)
 
     # Travel time over a coarser grid (fast), then back to full resolution.
-    f = max(1, w // 400)
     ch, cw = h // f, w // f
     blocks = cost[:ch * f, :cw * f].reshape(ch, f, cw, f)
-    coarse = np.where(np.isfinite(blocks), blocks, np.inf).min(axis=(1, 3))   # min keeps narrow passages open
+    on_foot = walkable[:ch * f, :cw * f].reshape(ch, f, cw, f)
+    # A block is land if at least half of it is (min keeps narrow passages open); otherwise
+    # it is crossed by boat, so seas are as wide as on a map of 400-px cells.
+    land_cost = np.where(on_foot, blocks, np.inf).min(axis=(1, 3))
+    at_sea = ~on_foot & np.isfinite(blocks)
+    n_sea = at_sea.sum(axis=(1, 3))
+    sea_cost = np.where(n_sea > 0, np.where(at_sea, blocks, 0).sum(axis=(1, 3)) / np.maximum(n_sea, 1), np.inf)
+    sea_cost = np.where(n_sea * 2 >= (~on_foot).sum(axis=(1, 3)), sea_cost, np.inf)   # mostly open sea: no way
+    coarse = np.where(on_foot.mean(axis=(1, 3)) >= 0.5, land_cost, sea_cost)
     km_ns = kpp * f
     km_ew = km_ns * np.maximum(np.cos(np.radians(world.grid.lat[:ch * f:f, 0])), 0.05)
 
@@ -313,6 +322,22 @@ def people_the_world(world, cfg, rng, voyages=None):
                             "from_lat": float(world.grid.lat[from_cell]), "from_lon": float(world.grid.lon[from_cell]),
                             "land_share": float(land_area[land_id])})
     return arrival.astype(np.float32)
+
+
+def _pick_homeland(score, f, rng):
+    """A cell drawn in proportion to `score`, the same place at any map width: a ~400 km
+    block drawn on a fixed 100-wide grid (blocks of f x f cells), one ticket per block (a
+    weighted reservoir draw, which small changes in score barely move), then the best
+    cell in it."""
+    h, w = score.shape
+    ch, cw = h // f, w // f
+    block = score[:ch * f, :cw * f].reshape(ch, f, cw, f).mean(axis=(1, 3))
+    tickets = rng.random((ch, cw))
+    key = np.where(block > 0, np.log(tickets) / np.maximum(block, 1e-12), -np.inf)
+    br, bc = np.unravel_index(int(np.argmax(key)), key.shape)
+    inner = score[br * f:(br + 1) * f, bc * f:(bc + 1) * f]
+    r, c = np.unravel_index(int(np.argmax(inner)), inner.shape)
+    return int((br * f + r) * w + bc * f + c)
 
 
 def _dijkstra(cost, start_r, start_c, km_ns, km_ew):

@@ -407,6 +407,9 @@ class States(System):
         losers, winners = own.flat[cells].copy(), best_owner.flat[cells]
         dead = pop.flat[cells] * cfg.conquest_loss
         pop.flat[cells] -= dead
+        intensity = state.cells.get("intensity")
+        if intensity is not None:          # fields and works damaged in the fighting
+            intensity.flat[cells] *= 1 - cfg.conquest_intensity_loss
         self._deaths += float(dead.sum())
         own.flat[cells] = winners
         for a, b in zip(winners, losers):
@@ -426,8 +429,8 @@ class States(System):
         crosses open country first and then the defended core (river, walls, capital), so
         the time to take it is the sum of the two, as on the 800-px map. A capital falls
         when the front reaches its town, on average halfway through the open part."""
-        q_open = rate / (1 + np.exp(-3 * (push - open_defence)))
-        q_core = rate / (1 + np.exp(-3 * (push - defence)))
+        q_open = rate / (1 + np.exp(np.clip(-3 * (push - open_defence), -50, 50)))
+        q_core = rate / (1 + np.exp(np.clip(-3 * (push - defence), -50, 50)))
         depth = np.full(np.shape(push), self.scale - 1, np.float32)
         if capitals is not None:
             depth = np.where(capitals, (self.scale - 1) / 2, depth)

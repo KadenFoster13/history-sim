@@ -130,6 +130,46 @@ class DynamicsTests(unittest.TestCase):
         sim.run(8050)
         self.assertAlmostEqual(sim.state.cells["population"].sum() / before, 1.0, places=3)
 
+    def test_intensification(self):
+        # Crowded farmland is worked harder (it feeds more); emptied land lets it go.
+        sim = start()
+        st, cfg = sim.state, DEFAULT
+        farming = st.tables["farming"]
+        ceiling = farming.ceiling(st)
+        self.assertTrue((ceiling >= 1).all())
+        self.assertLessEqual(float(ceiling.max()), cfg.irrigated_ceiling * cfg.paddy_ceiling + 1e-3)
+        cells = LAND & (farming.arable_eff > 0.3)
+        st.cells["subsistence"][:] = np.where(cells, FARMING, st.cells["subsistence"])
+        area = farming.area
+        cap = np.where(cells, 4.0 * area, 0).astype(np.float32)       # 4 people per km2
+        st.cells["capacity"] = cap
+        intensity = st.cells["intensity"]
+        st.cells["population"][:] = np.where(cells, 0.95 * cap, 0)   # dense and crowded
+        for _ in range(int(3000 / cfg.step_years)):              # 3,000 years
+            farming._intensify(st)
+        crowded = float(intensity[cells].mean())
+        self.assertGreater(crowded, 0.05)
+        self.assertLessEqual(float(intensity.max()), 1.0)
+        self.assertEqual(float(intensity[~cells].max()), 0.0)
+        st.cells["population"][:] = np.where(cells, 0.1 * cap, 0)    # emptied
+        for _ in range(100):
+            farming._intensify(st)
+        self.assertLess(float(intensity[cells].mean()), crowded / 2)
+        # Thin farming stays shifting: few people per km2 barely intensify.
+        intensity[:] = 0
+        st.cells["population"][:] = np.where(cells, 0.95 * cap / 20, 0)
+        st.cells["capacity"] = cap / 20
+        for _ in range(int(3000 / cfg.step_years)):
+            farming._intensify(st)
+        self.assertLess(float(intensity[cells].mean()), crowded / 3)
+        # Intensity multiplies what farmland feeds.
+        st.cells["population"][:] = np.where(cells, 0.95 * cap, 0)
+        forage = st.cells["forager_capacity"]
+        before, _ = farming.capacity(st, forage, LAND)
+        intensity[cells] = 1.0
+        after, _ = farming.capacity(st, forage, LAND)
+        self.assertGreaterEqual(float(after.sum()), float(before.sum()))
+
     def test_no_farming_before_holocene(self):
         sim = start(DEFAULT.copy(domestication_rate=1e-3))
         sim.run(DEFAULT.holocene_start_year)

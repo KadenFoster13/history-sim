@@ -21,6 +21,16 @@
   seafaring, in a later phase).
 - Food: farming feeds many more people per km2 than foraging; herding suits open,
   dry land. Each cell lives by whichever feeds the most people.
+- Shifting and settled farming: farming begins as shifting (slash-and-burn) fields with
+  long fallows, feeding few people per km2. Where farmers grow dense and their land
+  fills up they work it harder over the centuries (Boserup: shorter fallow, ploughs,
+  manure, terraces, irrigation), so `intensity` (0..1) rises and the land feeds more: up
+  to 6x on rain-fed fields, 30x on floodplains and on dry irrigable land a state holds
+  (canals), and more again for rice-like paddies. The denser the farmers, the faster it
+  goes, so dense places run ahead while thin land stays shifting; methods spread from
+  neighbours, and states speed it up. Intensity fades where land empties or is
+  abandoned, and a little when it is fought over, so collapses lower what the land can
+  feed for centuries.
 """
 from types import SimpleNamespace
 
@@ -92,7 +102,12 @@ class Farming(System):
         self.landmass = world.landmass_id
         self.km_per_px = world.grid.km_per_px
         self.cos_lat = np.maximum(np.cos(np.radians(world.grid.lat[:, 0])), 0.05)
+        self.slope = world.slope_m_per_km.astype(np.float32)
+        # Canals transform dry land; where rain already waters the fields they add little.
+        self.dryness = np.clip((1000 - world.precip_mm) / 600, 0, 1).astype(np.float32)
+        self.wet_grain = next((i for i, sp in enumerate(SPECIES) if sp.key == "wet_grain"), None)
         state.add_layer("tamed", np.uint32, record="changes")   # bit i set = uses SPECIES[i]
+        state.add_layer("intensity", np.float32, record="snapshot")
         state.cells["maturity"] = np.zeros((self.n,) + world.ocean.shape, np.float32)
         state.record_modes["maturity"] = "none"
         state.tables["farming"] = self
@@ -142,11 +157,63 @@ class Farming(System):
             weather = np.clip(climate.precip_factor, 0.3, 1.2) * (1 - 0.08 * np.maximum(0, -climate.temperature_offset_c))
         # Floodplains renew their soil every year (silt): up to (1 + flood_yield) times the harvest.
         farm = cfg.farmer_density * crops * self.arable * weather * (1 + cfg.flood_yield * self.flood)
+        intensity = state.cells.get("intensity")
+        if intensity is not None:
+            farm = farm * (1 + (self.ceiling(state) - 1) * intensity)
         herding = cfg.herder_density * np.minimum(herd, 2.0) * self.grazing * weather
         per_km2 = np.stack([forage / np.maximum(self.area, 1e-6), herding, farm + 0.3 * herding])
         mode = np.argmax(per_km2, axis=0) + 1                     # FORAGING, HERDING, FARMING
         cap = np.where(land, per_km2.max(axis=0) * self.area, 0).astype(np.float32)
         return cap, np.where(cap > 0, mode, 0).astype(np.uint8)
+
+    def ceiling(self, state):
+        """The most each cell's farmland can be intensified (x what it feeds unintensified):
+        rain-fed fields up to `rainfed_ceiling`; floodplains, and dry irrigable land a
+        state holds (canals), up to `irrigated_ceiling`; more for rice-like paddies; less
+        on poor or steep land."""
+        cfg = state.config
+        own = state.cells.get("state")
+        canals = self.irrigable * self.dryness * (own > 0) if own is not None else 0
+        water = np.maximum(np.clip(self.flood / 0.4, 0, 1), canals)
+        quality = np.clip(self.arable_eff / 0.6, 0.3, 1) * np.clip(1 - self.slope / 80, 0.3, 1)
+        top = (cfg.rainfed_ceiling - 1 + (cfg.irrigated_ceiling - cfg.rainfed_ceiling) * water) * quality
+        if self.wet_grain is not None:
+            paddy = np.where(self.has(state, self.wet_grain), np.clip(self.suit[self.wet_grain], 0, 1), 0)
+            top = top * (1 + (cfg.paddy_ceiling - 1) * paddy)
+        return (1 + top).astype(np.float32)
+
+    def _intensify(self, state):
+        """Crowded farmland is worked harder; emptied or abandoned land lets it go."""
+        from worldgen.generator import shift
+        cfg, dt = state.config, self.every
+        intensity = state.cells["intensity"]
+        cap = state.cells.get("capacity")
+        mode = state.cells.get("subsistence")
+        if cap is None or mode is None:
+            return
+        pop = state.cells["population"]
+        farming = (mode == FARMING) & (pop > 0)
+        pressure = np.where(cap > 0, pop / np.maximum(cap, 1e-6), 0)
+        # Farmers intensify once their land is filling up, and the more of them there are per
+        # km2 the faster (Boserup: density drives it, and intensive land holds more people,
+        # so dense places run ahead while thin shifting-farming land stays as it is).
+        filling = np.clip((pressure - cfg.intensify_pressure) / 0.1 + 0.5, 0, 1)
+        density = pop / np.maximum(self.area, 1e-6)
+        push = filling * np.clip(density / cfg.intensify_density, 0, 3)
+        lead = np.zeros_like(intensity)
+        for dy, dx in DIRECTIONS4:
+            lead = np.maximum(lead, shift(intensity, dy, dx) - intensity)
+        speed = 1 + cfg.intensity_neighbour * np.clip(lead, 0, 1)
+        own = state.cells.get("state")
+        if own is not None:
+            speed = speed * np.where(own > 0, 1 + cfg.state_intensify, 1)
+        # Slow to start, then faster as methods, works and markets build on each other.
+        gain = dt / cfg.intensify_years * push * speed * (cfg.intensity_start + intensity)
+        grown = intensity + np.minimum(gain, 1) * (1 - intensity)
+        # Emptied land (people well below what it feeds) or land no longer farmed decays.
+        slack = np.where(farming, np.clip((0.5 - pressure) / 0.5, 0, 1), 1.0)
+        kept = 0.5 ** (dt / cfg.intensity_decay_years * slack)
+        intensity[:] = np.where(farming, grown, intensity) * kept
 
     def _present(self, tamed):
         bits = np.bitwise_or.reduce(tamed.ravel()) if tamed.size else 0
@@ -162,6 +229,8 @@ class Farming(System):
         pop = state.cells["population"]
         people = pop > 0
         farms_anything = tamed != 0
+
+        self._intensify(state)
 
         # Crops improve over the centuries after taming.
         for i in np.flatnonzero(self._present(tamed)):
@@ -309,13 +378,29 @@ class Farming(System):
         records = state.tables["domestications"]
         land = ~state.world.ocean & ~state.world.lake
         crop_bits = sum(1 << i for i in range(self.n) if self.is_crop[i])
-        state.stats.update({
+        stats = {
             "domestications": len(records),
             "farming_origins": sum(1 for r in records if r["independent"]),
             "species_tamed": len({r["species"] for r in records}),
             "farmed_land_share": float(((tamed & np.uint32(crop_bits)) != 0)[land].mean()),
             "herded_or_farmed_land_share": float((tamed != 0)[land].mean()),
-        })
+            "settled_farmland_share": 0.0, "intensive_farmland_share": 0.0, "farm_density_low": 0.0,
+            "farm_density_high": 0.0, "farm_density_top": 0.0,
+        }
+        mode = state.cells.get("subsistence")
+        pop = state.cells.get("population")
+        if mode is not None and pop is not None:
+            farm = (mode == FARMING) & (pop > 0)
+            if farm.sum() >= 10:
+                dens = (pop / np.maximum(self.area, 1e-6))[farm]
+                low, high, top = np.percentile(dens, [10, 90, 99])
+                stats.update({
+                    "settled_farmland_share": float((state.cells["intensity"][farm] >= 0.15).mean()),
+                    "intensive_farmland_share": float((state.cells["intensity"][farm] >= 0.5).mean()),
+                    "farm_density_low": float(low), "farm_density_high": float(high),
+                    "farm_density_top": float(top),
+                })
+        state.stats.update(stats)
 
 
 def _watered_suitability(world, is_crop, land):

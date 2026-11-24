@@ -44,6 +44,7 @@ MODES = {"People": people_map, "Density": density_map, "Cultures": culture_map,
 BACKGROUND_LABELS = {"Terrain": "terrain", "Biomes": "biomes", "White": "white"}
 SPEEDS = [1, 5, 10, 25, 50, 100, 250, 500]          # years per frame
 WAYS = {0: "nobody", FORAGING: "foragers", HERDING: "herders", FARMING: "farmers"}
+SETTLED = 0.15               # farmland this intensive counts as settled, not shifting, farming
 FRAME_SECONDS = 0.35                                 # most time spent simulating per frame (live)
 FIG_W, FIG_H = 15.5, 8.6                             # designed window size, inches (text scales from it)
 
@@ -872,7 +873,13 @@ class HistoryViewer:
         if pop is not None and pop[r, c] > 0:
             area = self.world.grid.km_per_px ** 2 * max(np.cos(np.radians(lat)), 0.01)
             way = WAYS.get(int(layers.get("subsistence", np.zeros_like(pop))[r, c]), "")
-            parts.append(f"{_count(pop[r, c])} {way} ({pop[r, c] / area:.2f}/km2)")
+            intensity = layers.get("intensity")
+            farmed_how = ""
+            if intensity is not None and way == WAYS.get(FARMING):
+                # Unintensified farming is shifting (slash-and-burn); crowding settles it.
+                way = "shifting farmers" if intensity[r, c] < SETTLED else "settled farmers"
+                farmed_how = f", farmed {intensity[r, c]:.0%} intensively" if intensity[r, c] >= 0.05 else ""
+            parts.append(f"{_count(pop[r, c])} {way} ({pop[r, c] / area:.2f}/km2{farmed_how})")
             cult = layers.get("culture")
             records = tables.get("cultures")
             if cult is not None and records and 0 < cult[r, c] < len(records) and records[cult[r, c]]:

@@ -205,6 +205,107 @@ farming spread unevenly, not as a smooth ring. The simulation now follows that:
 - **Later:** stored, taxable grain (cereals) favouring states over tuber farming;
   seafaring pioneers (the Mediterranean's coast-hopping farmers) with phase 7.
 
+### Farming intensification (built 2026-11-23, histsim 0.5.0)
+**Problem.** Farmland away from rivers is too even. World 31 at 1 CE (800 px, seed 1):
+0.4-2.2 people/km2 (10th-99th percentile), a 4.5x spread with a hard ceiling near
+`farmer_density` (2/km2); river farmland is no denser (median 1.0 against 1.1) and the
+world holds 72-76 million people (target 100-500 million, Earth 200-300 million). On
+Earth around 1 CE farmland ran from 2-5/km2 on frontiers (Germania) through 10-40
+(Gaul, Italy) to 50-100 (Han China's core) and 100-300 on cultivated Nile land: tens of
+times more in old cores than on frontiers.
+
+**Causes on Earth, which the simulation should follow:**
+1. Intensification (Boserup): crowded farmers work land harder over centuries: shorter
+   fallow, ploughs, manure, terraces, irrigation, double cropping. The main cause.
+2. The crop: wet rice paddies feed several times what rain-fed grain does.
+3. States: order, storage, roads, markets and organised irrigation; old core provinces
+   were far denser than borderlands.
+4. Setbacks: war, famine and collapse abandon fields and let terraces and canals decay.
+5. Frontier lag: new farmland takes generations to fill.
+
+**Design.**
+- A new cell layer `intensity` (0..1, recorded on change): how far farming there has been
+  intensified. Farming capacity is multiplied by `1 + (ceiling - 1) x intensity`.
+- **Growth from crowding:** intensity rises only while farmers press on their land
+  (population over ~80% of capacity), over roughly 2,000-3,000 years to near full; faster
+  next to more intensive land (methods spread) and inside a state (public works), and
+  faster the longer that state has held the cell.
+- **Ceiling by land:** about 6x on rain-fed farmland, up to ~15x on floodplains and
+  irrigable land (irrigation agriculture), and higher where the best crop is the
+  rice-like wet grain (paddies, x1.5); poor soil and steep land lower it (terraces later).
+- **Decay:** intensity falls when people drop well below capacity (abandoned fields,
+  broken canals: about half in a few centuries), when a cell is conquered (a little), or
+  stops being farmed; so collapses lower capacity and dark ages last.
+- **States:** the flat `state_food_bonus` (+25%) becomes part of this: states speed
+  intensification rather than add food directly. A state that has held irrigable land
+  for long waters it (a local version of `canal_irrigation`, which stays phase 4's
+  technology hook for the wider spread of canals).
+- Settlements, states and war need no change: bigger, denser populations make bigger
+  towns, richer cores and stronger states by themselves. Check that the largest city
+  and largest state move toward their targets (200,000-2 million; ~20-25% of the world)
+  without overshooting.
+- Per-cell and per-year, so it scales with map size like the rest (the neighbour spread
+  uses the same rounds as other spreading). A graph of intensive farmland share and the
+  spread of farm densities; the hover shows intensity; maybe a map mode later.
+
+**Calibration targets (world 31 and 22, 800 px, three seeds; 400 px for iterating):**
+
+| Measure, 1 CE | Now | Aim |
+|---|---|---|
+| World population | 72-76M | 150-300M (accept 100-500M) |
+| Farm density, 90th / 10th percentile | 4.5x | 20x or more |
+| Oldest cores (top 1% of farm cells) | ~2/km2 | 30-150/km2 |
+| Frontier farmland (bottom 10%) | 0.4/km2 | 1-5/km2 |
+| Largest city | 52-61k | 200,000+ (accept 100,000+ for now) |
+| Urban share | 2.5-2.9% | 2-15% |
+| Population 5000 BCE / 3000 BCE | in range | stay in range (intensification takes time) |
+
+Plus the existing checks: first cities and kingdoms, wars and state counts, and 400 vs
+800 px. Then re-check the phase 3 tuning (empire size and lifespan), which bigger
+populations will move.
+
+**Steps:** (1) intensity layer, ceiling and capacity multiplier, with unit tests (grows
+only under pressure, never above the ceiling, decays when emptied); (2) spread to
+neighbours and the state speed-up, folding in `state_food_bonus`; (3) decay on conquest
+and depopulation; (4) stats, graph and hover; (5) calibrate on 400 px runs, confirm on
+800 px for worlds 31 and 22; (6) 400 vs 800 px check; (7) docs, decision log, version
+(histsim 0.5.0, since every history changes).
+
+**Built.** As designed, with these changes from tuning:
+- **Shifting and settled farming.** Farming begins as shifting (slash-and-burn) fields
+  with long fallows, at a low base density (`farmer_density` 1.2/km2, was 2.0);
+  intensity is how far a place has moved to settled, intensive farming (the viewer
+  calls farmers below intensity 0.15 "shifting", above it "settled").
+- **Density drives it (Boserup).** Intensification runs once the land is filling up
+  (60% of what it feeds), at a pace that grows with farmers per km2 (full pace at 2/km2,
+  up to 3x). Driving it by crowding alone stalled: each gain lowered crowding, so cores
+  never pulled away. By density, dense places run ahead and thin land stays shifting.
+- **Ceilings:** 6x on rain-fed fields, 30x on floodplains and on *dry* irrigable land a
+  state holds (canals; 40% of farmland counts as irrigable, mostly in wet places where
+  canals add little), x1.5 for paddies; states double the pace; conquest costs 10%.
+- Tried and dropped: a market rule (faster near big towns): little gain.
+
+Results at 1 CE, 800 px, seeds 1-3 of worlds 31 and 22:
+
+| Measure, 1 CE | Before | Now | Aim |
+|---|---|---|---|
+| World population | 72-76M (w31) | 111-262M (w31), 225-328M (w22) | 150-300M |
+| Population, 5000 BCE | 14-17M | 11-27M | 5-20M (accept 2-40M) |
+| Densest 1% of farmland | ~3/km2 | 38-63/km2 | 30-150/km2 |
+| Off-river: median / densest 1% | 1.1 / 2.2 per km2 | 0.7 / 4-12 per km2 | thin, with real cores |
+| Off-river: densest tenth / thinnest tenth | 4.5x | 5-12x | ~10x (Italy against Germania) |
+| Largest town | 52-61k | 0.43-0.84 million | 0.2-2 million |
+| Urban share | 2.5-2.9% | 7.3-9.4% | 2-15% |
+| Empires ever by 1 CE | 14-21 | 24-76 | (Earth roughly 20-30) |
+| People in states | 51-73% | 82-93% | |
+
+The map now shows dense cores along rivers and across whole old regions, with thin
+shifting farmland between them, instead of an even field. Still open: (1) twice as many
+empires and more people in states (more states pass `empire_people`): part of the phase
+3 re-check; (2) the absolute densities are lower than Earth's (most farmland here is
+thin), while the spread between cores and frontiers is about right; (3) 400 px runs
+come out higher where the seeds already differ by 5000 BCE (where farming starts).
+
 ### Wild plants and animals (worldgen 1.1)
 Each world gets domesticable species with climate ranges and native homelands, blocked
 by oceans and mountains, so not every continent gets every species:
@@ -413,14 +514,19 @@ Each phase ends with something to run, watch and graph.
   seeds. States per million people in them are the same at both widths (5-7); what is
   left is that 400 px puts a little more of the world in states after ~1000 BCE, and its
   biggest towns are ~30% larger. 1600 px has not been rerun since (slow); expect a
-  little more state turnover there now. Seed 4 is peopled late at 400 px but not at
-  800 px (the peopling homeland and crossings depend on the map); seed 5 is peopled late
-  at both.
+  little more state turnover there now. The peopling homeland is drawn on a fixed grid of
+  ~400 km blocks and sea crossings are measured to the shore's edge, so on world 31 all
+  eight seeds tried start the same way at 400 and 800 px (seeds 4 and 5 used to be
+  peopled late at 400 px). On world 22 a Pacific island chain is still crossable at
+  800 px but not at 400 px (its islands are smaller on the coarser map), so people spread
+  more slowly there at 400 px.
 
 ## 12. Decision log
 
 | Date | Decision |
 |---|---|
+| 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
+| 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
 | 2026-11-23 | Map size, states (histsim 0.4.1): border strength measured as on the 800-px map, coarse fronts cross open land then the defended core, coarse capitals fall when the front reaches the town. 400 px state count ~70% -> ~20% above 800 px (within seed spread); 800 px runs unchanged |
 | 2026-11-23 | Rules scaled to map size so a different `--width` gives a comparable history: most 1 CE measures at 400 and 1600 px now fall near the 800 px range; coarser maps still have more states and wars (see Risks, "Map size"). Worldgen 1.5: wild species homelands picked on a fixed grid, so ranges are the same at any width (this changes every world's wildlife, so histories differ from 1.4) |
 | 2026-11-21 | Simulate on worldgen map cells (800 px), 4-direction moves, rivers on edges |

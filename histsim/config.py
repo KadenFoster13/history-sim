@@ -34,7 +34,8 @@ class SimConfig:
     forager_growth: float = 0.002       # yearly growth rate where there's room (falls to 0 at capacity)
 
     # ----------------------------------------------------------- farming
-    farmer_density: float = 2.0         # people per km2 on good land with a mature early crop package
+    farmer_density: float = 1.2         # people per km2 on good land with a mature early crop package, farmed
+                                        # the first way: shifting (slash-and-burn) fields with long fallows
     herder_density: float = 0.6         # people per km2 living off herds on open grazing land
     farmer_growth: float = 0.004        # yearly growth rate where there's room
     crop_maturity_years: float = 2500.0 # years for a newly tamed crop to reach full yield (x difficulty)
@@ -55,6 +56,21 @@ class SimConfig:
     flood_yield: float = 1.0            # floodplain harvests up to (1 + this) times others (yearly silt)
     canal_irrigation: float = 0.0       # how far canals water irrigable land, 0..1 (technology, phase 4)
     tsetse_block: float = 0.5           # tsetse above this keeps cattle and horses out
+    # Intensification (Boserup): crowded farmers work their land harder over the centuries
+    # (shorter fallow, ploughs, manure, terraces, irrigation), so old farmland feeds many
+    # times more people than new. `intensity` (0..1) per cell multiplies what farmland
+    # feeds, up to its ceiling.
+    rainfed_ceiling: float = 6.0        # most a rain-fed field can be intensified (x)
+    irrigated_ceiling: float = 30.0     # ... a floodplain, or dry irrigable land under a state (canals)
+    paddy_ceiling: float = 1.5          # ... and this much more where the rice-like grain grows well
+    intensify_years: float = 2500.0     # time scale of intensification under full pressure
+    intensify_pressure: float = 0.6     # it starts once people reach this share of what the land feeds
+    intensify_density: float = 2.0      # ... at full pace with this many people per km2 (faster with more, up to 3x)
+    intensity_start: float = 0.1        # how slowly it begins (growth ~ this + intensity: compounding)
+    intensity_neighbour: float = 1.0    # faster next to more intensive land (methods spread)
+    state_intensify: float = 1.0        # faster inside a state (order, works, markets): x(1 + this)
+    intensity_decay_years: float = 400.0  # half-life of intensity on emptied or abandoned land
+    conquest_intensity_loss: float = 0.1  # share lost when a cell is taken in war
 
     # ---------------------------------------------------------- cultures
     # At year 0: language families and cultures per million km2 of settled land (more
@@ -152,7 +168,8 @@ class SimConfig:
     notable_share: float = 0.04         # chronicle wars and rebellions of states with this share of the
                                         # world's people (and at least 300,000)
     capital_share: float = 0.015        # share of a state's people drawn to its capital
-    state_food_bonus: float = 0.25      # farmland in a state feeds this much more (order, storage, works)
+    state_food_bonus: float = 0.0       # farmland in a state feeds this much more (now through
+                                        # intensification: states speed it up, see state_intensify)
     ruling_prestige: float = 3.0        # the rulers' culture is this much stronger in its state
 
     # --------------------------------------------------------- migration
