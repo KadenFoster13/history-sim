@@ -55,6 +55,21 @@ class StateTests(unittest.TestCase):
         self.assertFalse(np.isin(own, ended).any())
 
 
+    def test_coarse_fronts(self):
+        # A 100 km cell is two ~50 km cells deep: open country, then its defended core.
+        from histsim.systems.states import States
+        s = States()
+        s.scale = 2.0
+        push = np.zeros(3, np.float32)
+        open_d = np.zeros(3, np.float32)
+        core = np.array([0.0, 0.5, 2.0], np.float32)
+        p = s._coarse_take(0.6, push, open_d, core)
+        self.assertAlmostEqual(float(p[0]), 0.15, places=5)     # undefended: half the rate
+        q_open, q_core = 0.3, 0.6 / (1 + np.exp(3 * 2.0))
+        self.assertAlmostEqual(float(p[2]), 1 / (1 / q_open + 1 / q_core), places=5)
+        self.assertTrue(p[0] > p[1] > p[2])
+
+
 class DecisionTests(unittest.TestCase):
     def test_strong_rulers_attack_weak_neighbours(self):
         ai = StateAI(DEFAULT, np.random.default_rng(0))

@@ -50,8 +50,8 @@ year 10,000 is 1 CE and `--until 12000` (the default) runs to 2000 CE.
 `--width` sets the world map's size (800 px by default, cells ~50 km across). History
 is simulated on the map's cells, and the rules are scaled to cell size so other widths
 give comparable histories (not yet exactly: coarser maps still come out with somewhat
-more, smaller states and more wars; see PLAN.md, "Map size"). A different width is always a different
-history, and 1600 px takes about four to five times as long. To see detail without
+more states and bigger towns; see PLAN.md, "Map size"). A different width is always a
+different history, and 1600 px takes about four to five times as long. To see detail without
 changing the run, use the viewer's Enhance.
 
 `--peopling sparse|some|most|all` sets how much of the world people have reached by

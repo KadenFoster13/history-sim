@@ -73,6 +73,9 @@ class States(System):
         self.circumscribed = self._circumscription(state)
         river = (cell_river_flow(world) > 1000) & ~world.ocean
         self.defence = (cfg.hill_defence * np.clip(slope / 30, 0, 1.5) + cfg.river_defence * river).astype(np.float32)
+        # Hills cover a whole cell; a river line, walls or a capital only a ~50 km core of it.
+        self.hill_defence = (cfg.hill_defence * np.clip(slope / 30, 0, 1.5)).astype(np.float32)
+        self.river_defence = (cfg.river_defence * river).astype(np.float32)
 
         state.add_layer("state", np.uint16, record="changes")
         state.add_layer("state_distance", np.float32, fill=np.inf, record="none")
@@ -117,6 +120,10 @@ class States(System):
         chief = np.array([r is not None and r["kind"] == "chiefdom" for r in self.records[:n]])
         self.reach[:len(chief)][chief] *= cfg.chiefdom_reach         # chiefs rule only nearby
         dist = state.cells["state_distance"]
+        if self.scale != 1:
+            # Measured to cell centres, which lie half a cell inside a border: on coarse maps
+            # 50 km in, on the 800-px map 25 km. Strength along a border is as on that map.
+            dist = np.maximum(dist + 25.0 * (self.scale - 1), 0)
         decay = np.exp(-np.where(np.isfinite(dist), dist, 1e9) / self.reach[own])
         self.local = np.where(own > 0, np.sqrt(self.power[own]) * decay, 0).astype(np.float32)
 
@@ -368,6 +375,7 @@ class States(System):
         for sid in self.alive_ids():
             capitals.flat[records[sid]["capital"]] = True
         defence = self.defence + cfg.town_defence * town + cfg.capital_defence * capitals
+        open_defence = self.hill_defence
         best_p = np.zeros(own.shape, np.float32)
         best_owner = np.zeros_like(own)
         for dy, dx in DIRECTIONS4:
@@ -379,9 +387,13 @@ class States(System):
             at_war &= np.isin(pair, keys)
             if not at_war.any():
                 continue
-            edge = cfg.war_edge * np.log(np.maximum(shift(self.local, dy, dx), 1e-9)
-                                         / np.maximum(self.local, 1e-9)) - defence
-            p = np.minimum(cfg.war_rate / (self.scale * rounds) * dt / (1 + np.exp(-3 * edge)), 1.0)
+            push = cfg.war_edge * np.log(np.maximum(shift(self.local, dy, dx), 1e-9)
+                                         / np.maximum(self.local, 1e-9))
+            if self.scale > 1:
+                p = self._coarse_take(cfg.war_rate * dt, push, open_defence, defence, capitals)
+            else:
+                edge = push - defence
+                p = np.minimum(cfg.war_rate / (self.scale * rounds) * dt / (1 + np.exp(-3 * edge)), 1.0)
             # Fronts move as lines: cells the attacker half surrounds fall sooner than
             # spearheads (otherwise conquests grow as diamonds along the map grid).
             p = p * np.clip(self._surrounded(own, attacker) / 3, 1 / 3, 5 / 3)
@@ -408,6 +420,18 @@ class States(System):
             if own.flat[cap] != b:
                 self._capital_falls(state, int(b), int(own.flat[cap]))
         self._patch_distances(state, flip)
+
+    def _coarse_take(self, rate, push, open_defence, defence, capitals=None):
+        """Chance a coarse cell falls this step. It is `scale` ~50 km cells deep: the front
+        crosses open country first and then the defended core (river, walls, capital), so
+        the time to take it is the sum of the two, as on the 800-px map. A capital falls
+        when the front reaches its town, on average halfway through the open part."""
+        q_open = rate / (1 + np.exp(-3 * (push - open_defence)))
+        q_core = rate / (1 + np.exp(-3 * (push - defence)))
+        depth = np.full(np.shape(push), self.scale - 1, np.float32)
+        if capitals is not None:
+            depth = np.where(capitals, (self.scale - 1) / 2, depth)
+        return np.minimum(1 / (depth / np.maximum(q_open, 1e-12) + 1 / np.maximum(q_core, 1e-12)), 1.0)
 
     @staticmethod
     def _surrounded(own, owner):

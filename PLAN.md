@@ -395,26 +395,33 @@ Each phase ends with something to run, watch and graph.
   part of a cell on coarser ones); frontier bands for cohesion likewise; counts in cells
   scaled; new states founded on ~150 km of land; breakaways bigger than a one-cell
   statelet; towns capped by the people within ~2,500 km2. Worldgen 1.5 picks wild
-  species' homelands on a fixed grid, so ranges match at any width. 800 px gives exactly
-  the same runs as before. World 31 at 1 CE, three history seeds each, all with the 800 px
-  wildlife:
+  species' homelands on a fixed grid, so ranges match at any width. Border strength is
+  measured as on the 800-px map (cell centres lie half a cell inside a border, so on
+  other maps distances to the capital are shifted by the difference), and a coarse war
+  front crosses open country and then the defended core of a cell, with a capital falling
+  when the front reaches its town. 800 px gives exactly the same runs as before.
+  World 31 at 1 CE, all with the 800 px wildlife (worldgen 1.5):
 
-  | Width | People | Farmed | States | In states | Biggest town | Empires ever | Wars/century |
-  |---|---|---|---|---|---|---|---|
-  | 400 px | 90-106M | 37-41% | 412-483 | 79-83% | 84-136k | 16-30 | 55-100 |
-  | 800 px | 76-97M | 37-42% | 222-314 | 52-73% | 56-84k | 17-32 | 44-53 |
-  | 1600 px | 59-85M | 35-45% | 175-273 | 52-66% | 43-66k | 13-19 | 31-51 |
+  | Width | Seeds | People | Farmed | States | In states | Biggest town | Empires ever | Wars/century |
+  |---|---|---|---|---|---|---|---|---|
+  | 400 px | 1-3, 6 | 66-91M | 34-40% | 250-390 | 67-85% | 74-96k | 12-37 | 31-83 |
+  | 800 px | 1-3 | 72-76M | 37-39% | 250-285 | 51-73% | 52-61k | 14-21 | 33-47 |
+  | 1600 px (before the last two fixes; worldgen 1.4 wildlife) | 1-3 | 59-85M | 35-45% | 175-273 | 52-66% | 43-66k | 13-19 | 31-51 |
 
-  (Before these fixes, 400 px had 118-119M people and 1600 px 7-22 empires and 14-43
-  wars per century.) Most measures now overlap, but a milder trend remains: coarser maps
-  have more, smaller states, more wars and somewhat more people. Likely in how states
-  form and break up per cell (formation chance per town, secession, collapse into
-  successors). Test with 400 px runs first.
+  The 400 px state count was ~70% above 800 px before these fixes, and is now ~20%
+  above it on seeds 1-3 (seed 6 has states unusually early), about the spread between
+  seeds. States per million people in them are the same at both widths (5-7); what is
+  left is that 400 px puts a little more of the world in states after ~1000 BCE, and its
+  biggest towns are ~30% larger. 1600 px has not been rerun since (slow); expect a
+  little more state turnover there now. Seed 4 is peopled late at 400 px but not at
+  800 px (the peopling homeland and crossings depend on the map); seed 5 is peopled late
+  at both.
 
 ## 12. Decision log
 
 | Date | Decision |
 |---|---|
+| 2026-11-23 | Map size, states (histsim 0.4.1): border strength measured as on the 800-px map, coarse fronts cross open land then the defended core, coarse capitals fall when the front reaches the town. 400 px state count ~70% -> ~20% above 800 px (within seed spread); 800 px runs unchanged |
 | 2026-11-23 | Rules scaled to map size so a different `--width` gives a comparable history: most 1 CE measures at 400 and 1600 px now fall near the 800 px range; coarser maps still have more states and wars (see Risks, "Map size"). Worldgen 1.5: wild species homelands picked on a fixed grid, so ranges are the same at any width (this changes every world's wildlife, so histories differ from 1.4) |
 | 2026-11-21 | Simulate on worldgen map cells (800 px), 4-direction moves, rivers on edges |
 | 2026-11-21 | Watch live, save and replay, graphs after a run; player control in a later phase |
