@@ -163,7 +163,11 @@ class SimConfig:
     min_rebel_cells: int = 4            # smallest region that can break away
     kingdom_people: float = 150_000.0   # people for a state to count as a kingdom
     kingdom_capital_min: float = 10_000.0  # ... with a capital city at least this big (or twice the people)
-    empire_people: float = 3_000_000.0  # ... and as an empire (or half as many, mostly of other peoples)
+    empire_people: float = 3_500_000.0  # ... and as an empire
+    empire_mixed: float = 0.8           # ... or this share of that, if mostly of other peoples
+    empire_keep: float = 0.5            # an empire is one until it falls below this share of the bar
+    empire_world: float = 100e6         # ... when the world holds this many people; the bar moves with
+    empire_growth: float = 0.5          # (world people / empire_world) to this power
     largest_state_event_years: int = 300
     notable_share: float = 0.04         # chronicle wars and rebellions of states with this share of the
                                         # world's people (and at least 300,000)

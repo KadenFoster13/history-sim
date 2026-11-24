@@ -46,6 +46,14 @@ MAX_STATES = 65_000          # the state layer is uint16
 NOTABLE = 300_000            # people: wars and events involving states this big are chronicled
 
 
+def empire_bar(cfg, world_people):
+    """People a state needs to count as an empire. An empire is big for its time: the
+    biggest states grew as the world filled, though more slowly than its people (Akkad
+    ruled perhaps a million of some 30 million, Rome some 50 million of 250 million), so
+    the bar rises with world population to a power below 1."""
+    return cfg.empire_people * (max(world_people, 1.0) / cfg.empire_world) ** cfg.empire_growth
+
+
 class States(System):
     name = "states"
 
@@ -692,6 +700,7 @@ class States(System):
             ruled_by_own = np.bincount(own.ravel(), weights=(state.cells["population"] * match).ravel(),
                                        minlength=n)
         size = state.cells.get("settlement")
+        empire = empire_bar(cfg, self._world_people)
         for sid in range(1, n):
             rec = records[sid]
             if rec is None or rec["ended"] is not None:
@@ -706,9 +715,9 @@ class States(System):
             cap_size = float(size.flat[rec["capital"]]) if size is not None else 0.0
             kind = rec["kind"]
             # Promotions at the thresholds; demotions only well below them (no flickering).
-            if people >= cfg.empire_people or (people >= cfg.empire_people / 2 and own_share < 0.5):
+            if people >= empire or (people >= empire * cfg.empire_mixed and own_share < 0.5):
                 kind = "empire"
-            elif kind == "empire" and people >= cfg.empire_people / 4:
+            elif kind == "empire" and people >= empire * cfg.empire_keep:
                 pass
             elif people >= cfg.kingdom_people and (cap_size >= cfg.kingdom_capital_min
                                                     or people >= 2 * cfg.kingdom_people):

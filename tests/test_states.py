@@ -55,6 +55,14 @@ class StateTests(unittest.TestCase):
         self.assertFalse(np.isin(own, ended).any())
 
 
+    def test_empire_bar_rises_with_the_world(self):
+        from histsim.systems.states import empire_bar
+        self.assertAlmostEqual(empire_bar(DEFAULT, DEFAULT.empire_world), DEFAULT.empire_people)
+        small, big = empire_bar(DEFAULT, 30e6), empire_bar(DEFAULT, 300e6)
+        self.assertLess(small, DEFAULT.empire_people)
+        self.assertGreater(big, DEFAULT.empire_people)
+        self.assertLess(big / small, 10)            # more slowly than the world's people
+
     def test_coarse_fronts(self):
         # A 100 km cell is two ~50 km cells deep: open country, then its defended core.
         from histsim.systems.states import States

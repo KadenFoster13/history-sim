@@ -145,8 +145,10 @@ hill or sea); 10,000+ are cities. Bigger capitals and urban shares come with sta
 ### States, war and breakup (phase 3)
 - **Formation:** where farming is ~4,000 years old, a town may become a chiefdom's seat;
   herders with horses may form confederations. Chiefdoms of 150,000+ people with a city
-  of 10,000 (or twice the people) become kingdoms; 3 million people (or 1.5 million mostly
-  of other peoples) make an empire; a single city with its fields is a city-state.
+  of 10,000 (or twice the people) become kingdoms; an empire needs a share of the world's
+  people that shrinks as the world fills (3.5 million when it holds 100 million, rising
+  with its square root; 80% of that if mostly of other peoples); a single city with its
+  fields is a city-state.
 - **Grip:** a state's strength at a cell is the square root of its people (herders with
   horses count extra) times its cohesion, fading with travel distance from the capital
   (open plains count as their real distance, rough country more). Its reach grows with
@@ -168,7 +170,8 @@ hill or sea); 10,000+ are cities. Bigger capitals and urban shares come with sta
   its great towns, so empires rise fast and fall within centuries.
 - **Submission:** a neighbour six times weaker may bow to a great power without war.
 - **Effects:** capitals draw a share of their state's people (fed and peopled from across
-  it); farmland in a state feeds 25% more; the rulers' culture slowly assimilates subjects.
+  it); states speed up farming intensification; the rulers' culture slowly assimilates
+  subjects.
 - **Not yet:** vassals and tribute, marriages and named rulers (phase 5), armies moving
   over the map, sea power (phase 7). Technology (phase 4) should lengthen states' reach
   (writing, roads, horses, bureaucracy) so that a few empires can hold a fifth of the world.
@@ -182,6 +185,24 @@ hill or sea); 10,000+ are cities. Bigger capitals and urban shares come with sta
   ports worth taking) and named rulers arrive, war should become: pick war goals (regions,
   cities), move along routes toward them, take what is reached, and settle by treaty.
   Borders would then follow rivers, mountains and old provincial lines.
+- **Later: empires as regional powers** (idea, 2026-11-23). An empire is defined today
+  by how many people it rules against the whole world. Historically an empire was the
+  dominant power of its own region, whatever the rest of the world held: the Inca ruled
+  perhaps 10 million and the Aztecs 5-6 million, far fewer than Han China, yet each
+  dominated its world; Akkad or Assyria likewise relative to their neighbours. A better
+  rule: a lower absolute floor (around 1 million people) plus dominance where it stands,
+  measured one of these ways (to be tried against each other):
+  - its share of the people within ~1,500-2,000 km of its capital (or on its landmass);
+  - its power against its strongest neighbour, or against the sum of its neighbours;
+  - how many peoples (cultures, language families) and former states it rules.
+  Gains: empires on small or isolated continents (an Andes or Mesoamerica) get counted,
+  and a crowded region full of similar states doesn't make all of them empires. Unlike
+  today's label, this could also feed back: dominance could slow cohesion loss
+  (prestige, tribute) or draw neighbours to submit, which bears on empire lifespans and
+  on the largest state's share (2-15% of the world here, against Rome's or Han's
+  20-25%). Worth doing with the phase 3 re-check or phase 4's technology of rule; it
+  needs a regional measure (people within a radius, already similar to the town
+  ceiling's) and the empire-count and lifespan checks redone at 400 and 800 px.
 
 ### Rivers and the spread of farming (phase 3 follow-up)
 Most early states arose on rivers (Mesopotamia, Egypt, the Indus, the Yellow River), and
@@ -300,9 +321,8 @@ Results at 1 CE, 800 px, seeds 1-3 of worlds 31 and 22:
 | People in states | 51-73% | 82-93% | |
 
 The map now shows dense cores along rivers and across whole old regions, with thin
-shifting farmland between them, instead of an even field. Still open: (1) twice as many
-empires and more people in states (more states pass `empire_people`): part of the phase
-3 re-check; (2) the absolute densities are lower than Earth's (most farmland here is
+shifting farmland between them, instead of an even field. Still open: (1) more people in
+states (82-93%; the empire count is fixed in histsim 0.5.1, see the decision log); (2) the absolute densities are lower than Earth's (most farmland here is
 thin), while the spread between cores and frontiers is about right; (3) 400 px runs
 come out higher where the seeds already differ by 5000 BCE (where farming starts).
 
@@ -525,6 +545,7 @@ Each phase ends with something to run, watch and graph.
 
 | Date | Decision |
 |---|---|
+| 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
 | 2026-11-23 | Map size, states (histsim 0.4.1): border strength measured as on the 800-px map, coarse fronts cross open land then the defended core, coarse capitals fall when the front reaches the town. 400 px state count ~70% -> ~20% above 800 px (within seed spread); 800 px runs unchanged |
