@@ -69,6 +69,16 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(early[0], 0)
         self.assertEqual(late.state.cells["exposed_shelf"].sum(), 0)
 
+    def test_timings_and_yearly_climate(self):
+        temps = []
+        sim = run_history(1, 12, observer=lambda s: temps.append(s.stats["global_temperature_c"]))
+        names = {s.name for s in sim.systems} | {"observers"}
+        self.assertEqual(set(sim.timings), names)
+        self.assertTrue(all(t >= 0 for t in sim.timings.values()))
+        self.assertIn("seconds_farming", sim.state.stats)
+        # The climate's maps are rebuilt every few years, its global numbers every year.
+        self.assertEqual(len(set(temps)), 12)
+
 
 class RecordingTests(unittest.TestCase):
     def test_replay_matches_live_state(self):

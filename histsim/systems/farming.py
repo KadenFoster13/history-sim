@@ -83,6 +83,7 @@ class Farming(System):
         self.arable_dry = world.arable.astype(np.float32)
         self.arable_watered = np.where(land, watered_arable, 0).astype(np.float32)
         self._canals = None
+        self.world_native = world.species_native
         self._apply_water(cfg)
         # How easily farming spreads into each cell: faster along rivers and coasts (the
         # Danube, the Nile) and over good soil, slower over rough ground, and patchy
@@ -126,6 +127,7 @@ class Farming(System):
         water = np.maximum(np.clip(self.flood / 0.4, 0, 1), canals * self.irrigable)
         watered = self.suit_watered * water[None]
         self.suit = np.where(self.is_crop[:, None, None], np.maximum(self.suit_dry, watered), self.suit_dry)
+        self.can_tame = self.world_native & (self.suit > 0)    # where each species could be tamed
         arable = np.maximum(self.arable_dry, self.arable_watered * water)
         self.arable_eff = arable.astype(np.float32)
         self.arable = (0.25 + 0.75 * arable).astype(np.float32)
@@ -244,18 +246,23 @@ class Farming(System):
             holocene *= 0.1
         if holocene > 0:
             crowding = np.clip(pop / np.maximum(state.cells["forager_capacity"], 1e-6), 0, 1.5)
+            tamed_flat = tamed.ravel()
             for i, sp in enumerate(SPECIES):
-                candidates = world.species_native[i] & people & ~self.has(state, i) & (self.suit[i] > 0)
-                if not candidates.any():
+                # Only cells where it can happen (worked out cell by cell; the random draw
+                # still covers the whole map, so runs stay the same as before).
+                cells = np.flatnonzero(self.can_tame[i] & people)
+                cells = cells[(tamed_flat[cells] & np.uint32(1 << i)) == 0]
+                if not len(cells):
                     continue
                 # Needs real crowding (pressure to find more food), and a species worth
                 # the effort: food plants and animals before fibre.
-                hazard = (cfg.domestication_rate * self.scale ** 2 * holocene * self.suit[i] * crowding ** 3 / sp.difficulty ** 2
-                          * (0.15 + sp.food) * np.where(farms_anything, cfg.farmer_domestication_bonus, 1.0))
+                hazard = (cfg.domestication_rate * self.scale ** 2 * holocene * self.suit[i].ravel()[cells]
+                          * crowding.ravel()[cells] ** 3 / sp.difficulty ** 2 * (0.15 + sp.food)
+                          * np.where(farms_anything.ravel()[cells], cfg.farmer_domestication_bonus, 1.0))
                 chance = 1 - np.exp(-hazard * dt)
-                hit = candidates & (rng.random(chance.shape) < chance)
-                if hit.any():
-                    cell = int(rng.choice(np.flatnonzero(hit)))   # one origin per species per step
+                hit = cells[rng.random(tamed.shape).ravel()[cells] < chance]
+                if len(hit):
+                    cell = int(rng.choice(hit))   # one origin per species per step
                     self._domesticate(state, i, cell)
 
         # Spread to neighbours (in several rounds on fine maps: see geo.rounds_for).

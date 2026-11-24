@@ -41,6 +41,7 @@ python -m histsim maps runs/world31_seed1          maps of where and how people 
 python -m histsim info runs/world31_seed1          summarise it and show the first events
 python -m histsim watch --world 31 --seed 1        watch a history live in the viewer
 python -m histsim replay runs/world31_seed1        replay a saved run in the viewer
+python -m histsim bench --world 31                 time a run to 1 CE, system by system
 ```
 
 (`python main.py ...` does the same.) `--world` picks the world, `--seed` the history:
@@ -51,8 +52,13 @@ year 10,000 is 1 CE and `--until 12000` (the default) runs to 2000 CE.
 is simulated on the map's cells, and the rules are scaled to cell size so other widths
 give comparable histories (not yet exactly: coarser maps still come out with somewhat
 more states and bigger towns; see PLAN.md, "Map size"). A different width is always a
-different history, and 1600 px takes about four to five times as long. To see detail without
+different history, and 1600 px takes about seven to nine times as long. To see detail without
 changing the run, use the viewer's Enhance.
+
+`bench` times a run without saving it (add `--save` to include saving): years per
+second for each millennium, the time each system takes, and a fingerprint of the
+history, so a change made only for speed can be checked to give the same history. Every
+saved run's graphs also show its run time per century, system by system.
 
 `--peopling sparse|some|most|all` sets how much of the world people have reached by
 10,000 BCE: `sparse` (short sea hops only, many empty lands), `some` (the default: rare

@@ -154,7 +154,16 @@ benchmark below), then for the game:
 **When.**
 - **Before phase 4 (O0, small):** the benchmark and per-system timings, plus the two easy
   wins (climate cadence, domestication only where it can happen), so phase 4's cost is
-  measured from a clean baseline.
+  measured from a clean baseline. **Done 2026-11-24 (histsim 0.5.2):** `python -m histsim
+  bench` (years/s by millennium, time by system, a history fingerprint), `seconds_<system>`
+  in every run's stats and a run-time graph; the climate's maps are rebuilt every
+  `step_years` (when the systems that read them run) with global numbers kept yearly;
+  domestication works only on cells where a species could be tamed. Same history as
+  0.5.1 (world 31 seed 1 to 1 CE: every stat and event identical, apart from float32
+  last-bit noise that 0.5.1 shows against itself). 800 px to 1 CE: ~475 s -> 297 s
+  with saving (~34 years/s; 57 years/s early, 22 by 1 CE). Time now: farming 38%
+  (spread), states 21%, population 13%, cultures 12%, environment 7%, settlements 6%,
+  saving 3%: the next gains are O1's.
 - **Every phase:** stays within its time budget; the benchmark is in its results.
 - **After phase 4 (O1, main pass):** land-only cells and neighbour indices, float32,
   numba kernels for the hot systems, incremental state summaries; aim for the 100
@@ -686,7 +695,7 @@ Each phase ends with something to run, watch and graph.
 | 1 | Peopling pre-pass; foraging populations; emergence and spread of farming and herding; villages | Humans spreading out, farming appearing in a few hearths and spreading |
 | 2 | Cultures and generated languages; towns and cities; the live viewer with map modes | Cultures splitting, named places, the first cities |
 | 3 | States: chiefdoms to empires, territory, borders, administration; diplomacy and war | Borders forming, wars and conquests, empires rising and falling |
-| O0 | Benchmark and per-system timings; easy speed wins (climate cadence, domestication) | Run time and its breakdown in each run's graphs |
+| O0 (built) | Benchmark and per-system timings; easy speed wins (climate cadence, domestication) | Run time and its breakdown in each run's graphs |
 | 4 | Technology web and its spread (including canals: `canal_irrigation`); economy, resources and trade routes | Bronze and iron ages emerging, trade networks |
 | O1 | Optimization pass: land-only cells, float32, numba kernels, incremental summaries (section 4) | The same histories, ~5x faster |
 | 5 | Religions and ideologies; key figures and dynasties; the chronicle | Faiths founded and spreading, named rulers, a written history |
@@ -759,6 +768,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | O0 built (histsim 0.5.2): `bench` command with a history fingerprint, per-system run time in stats and graphs, climate maps every `step_years`, domestication only where possible. Same history as 0.5.1; 800 px to 1 CE ~475 s -> ~297 s (with saving) |
 | 2026-11-24 | Optimization planned (it is to become a game): targets (800 px: 100+ years/s to 1 CE, never below ~20 years/s later; a smooth viewer while simulating), a benchmark and per-system timings, a time budget per phase, and passes O0 (before phase 4), O1 (after 4), O2 (after 6) and O3 (before 9). Profile at 0.5.1: 475 s to 1 CE, farming ~40%, climate ~22%, states ~14% |
 | 2026-11-23 | Map size, states (histsim 0.4.1): border strength measured as on the 800-px map, coarse fronts cross open land then the defended core, coarse capitals fall when the front reaches the town. 400 px state count ~70% -> ~20% above 800 px (within seed spread); 800 px runs unchanged |
 | 2026-11-23 | Rules scaled to map size so a different `--width` gives a comparable history: most 1 CE measures at 400 and 1600 px now fall near the 800 px range; coarser maps still have more states and wars (see Risks, "Map size"). Worldgen 1.5: wild species homelands picked on a fixed grid, so ranges are the same at any width (this changes every world's wildlife, so histories differ from 1.4) |

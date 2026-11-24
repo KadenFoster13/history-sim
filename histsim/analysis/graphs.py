@@ -63,6 +63,22 @@ def _format_axis(ax):
     ax.xaxis.set_major_formatter(FuncFormatter(fmt))
 
 
+def _plot_run_time(ax, years, timing, colours):
+    """Seconds of computing per century of history, by system (stacked)."""
+    step = 100
+    rows = np.flatnonzero((years - years[0]) % step == 0)
+    if len(rows) < 2:
+        return
+    x = real_year(years[rows[1:]] - step / 2)
+    names = sorted(timing, key=lambda k: -np.nan_to_num(timing[k])[-1])
+    rates = [np.diff(np.nan_to_num(timing[k])[rows]) for k in names]
+    ax.stackplot(x, rates, labels=names, alpha=0.85)
+    ax.legend(fontsize=7, loc="upper left", ncol=2, frameon=False, labelcolor=colours["fg"])
+    ax.set_title("Run time: seconds of computing per century, by system", fontsize=10)
+    ax.grid(alpha=0.3, color=colours["grid"])
+    _format_axis(ax)
+
+
 def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     """A grid of time-series graphs for a run; saved to `out` (default: <run>/graphs.png).
 
@@ -78,7 +94,11 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     run = RunReader(run_dir)
     stats = run.stats()
     years = stats.pop("year")
+    # Run time per system (cumulative seconds): drawn together in one graph.
+    timing = {k[len("seconds_"):]: stats.pop(k) for k in list(stats) if k.startswith("seconds_")}
     names = [k for k in (keys or stats.keys()) if k in stats and np.isfinite(stats[k]).any()]
+    if timing and (keys is None or "run_time" in keys):
+        names.append("run_time")
     if not names:
         raise ValueError("no statistics to plot")
     cols = 2 if len(names) > 1 else 1
@@ -87,6 +107,9 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     axes = fig.subplots(rows, cols, squeeze=False)
     x = real_year(years)
     for ax, name in zip(axes.ravel(), names):
+        if name == "run_time":
+            _plot_run_time(ax, years, timing, colours)
+            continue
         y = stats[name]
         if smooth_years and len(y) > smooth_years:
             kernel = np.ones(smooth_years) / smooth_years

@@ -3,6 +3,9 @@
 A simulation is a list of systems run in a fixed order every year. Each system may run
 only every few years (`every`), which keeps slow-changing early millennia cheap.
 Observers (the recorder, the live viewer) are told after each year.
+
+The time each system takes is kept (`Simulation.timings`, seconds so far) and reported
+in the stats as `seconds_<system>`, so every run shows where its time went.
 """
 import time
 
@@ -35,6 +38,8 @@ class Simulation:
                               config=config or DEFAULT)
         self.systems = list(systems)
         self.observers = []
+        self.timings = {s.name: 0.0 for s in self.systems}   # seconds spent so far
+        self.timings["observers"] = 0.0
         self._ready = False
 
     def add_observer(self, observer):
@@ -52,11 +57,19 @@ class Simulation:
             self._setup()
         state = self.state
         state.events = []   # statistics persist: systems that run every few years keep their last values
+        timings, clock = self.timings, time.perf_counter
         for system in self.systems:
             if system.due(state.year, self.start_year):
+                t = clock()
                 system.step(state)
+                timings[system.name] = timings.get(system.name, 0.0) + clock() - t
+        # Saved with this year's stats: the time up to the end of last year's observers.
+        for name, seconds in timings.items():
+            state.stats[f"seconds_{name}"] = round(seconds, 3)
+        t = clock()
         for observer in self.observers:
             observer(state)
+        timings["observers"] += clock() - t
         state.year += 1
 
     def run(self, until, progress_every=None, log=print):
