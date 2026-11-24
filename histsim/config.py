@@ -176,6 +176,24 @@ class SimConfig:
                                         # intensification: states speed it up, see state_intensify)
     ruling_prestige: float = 3.0        # the rulers' culture is this much stronger in its state
 
+    # --------------------------------------------------------- technology (histsim/tech.py)
+    tech_every: int = 10                # technology is found, spread and lost every this many years
+    tech_years: float = 1000.0          # a rarity-1 technology is found in about this many years by a
+                                        # million people (with a million more within reach)
+    tech_contact_km: float = 300.0      # people within this distance count as in contact
+    tech_town_boost: float = 3.0        # people near towns find things this much more readily (+)
+    tech_independent_km: float = 1500.0 # a find this far from anyone who knows it is a new invention
+    tech_spread_km_year: float = 2.0    # how fast knowledge spreads overland
+    tech_corridor: float = 2.0          # ... this much faster (+) along coasts and big rivers
+    tech_state_spread: float = 1.0      # ... and inside a state
+    tech_loss_half_life: float = 150.0  # knowledge whose keepers are gone halves in this many years
+    tech_town_km: float = 150.0         # "towns" need: a town within this distance
+    copper_reach_km: float = 500.0      # ore within reach (before trade carries it further)
+    tin_reach_km: float = 2000.0
+    iron_reach_km: float = 300.0
+    precious_reach_km: float = 1000.0   # gold or silver, for coinage
+    irrigable_reach_km: float = 50.0
+
     # --------------------------------------------------------- migration
     migration_rate: float = 0.08        # yearly share of crowding pressure that moves to neighbours
     famine_halving_years: float = 10.0  # how fast people beyond what the land can feed die off

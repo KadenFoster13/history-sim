@@ -8,7 +8,7 @@ from ..record.reader import RunReader
 
 # forage (gold), herd (orange), farm (crimson: stands out on green land)
 MODE_COLOURS = {1: (0.95, 0.80, 0.35), 2: (0.85, 0.45, 0.15), 3: (0.78, 0.12, 0.40)}
-MAP_KINDS = ("people", "density", "cultures", "families", "states", "arrival")
+MAP_KINDS = ("people", "density", "cultures", "families", "states", "technology", "arrival")
 WAR_RED = np.array([0.85, 0.08, 0.08])
 BACKGROUNDS = ("terrain", "biomes", "white")    # what maps are drawn over
 TOWN_MIN = 2000
@@ -110,6 +110,30 @@ def state_map(world, layers, tables=None, background="terrain", year=None):
             nb = shift(own, dy, dx)
             front |= ((own == a) & (nb == b)) | ((own == b) & (nb == a))
         img[front] = WAR_RED
+    return img
+
+
+# Technology map: the metal age of each place (stone, copper, bronze, iron); people who
+# know no technology at all are left plain, places that write are hatched.
+AGE_COLOURS = {0: (0.88, 0.82, 0.62), 1: (0.80, 0.45, 0.22), 2: (0.88, 0.66, 0.16), 3: (0.36, 0.44, 0.60)}
+AGE_LABELS = {0: "Stone (pottery, canals...)", 1: "Copper", 2: "Bronze", 3: "Iron"}
+
+
+def technology_map(world, layers, tables=None, background="terrain", year=None):
+    """The metal age each place is in; hatched where people write."""
+    from ..tech import age_of, bit
+    img = base_map(world, background)
+    known = layers.get("tech")
+    if known is None:
+        return img
+    age = age_of(known)
+    here = known != 0
+    for value, colour in AGE_COLOURS.items():
+        sel = here & (age == value)
+        img[sel] = img[sel] * 0.15 + np.array(colour) * 0.85
+    writes = (known & np.uint64(bit("writing"))) != 0
+    rows, cols = np.indices(known.shape)
+    img[writes & ((rows + cols) % 2 == 0)] *= 0.6
     return img
 
 
@@ -217,7 +241,8 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
         span = run.last_year - run.first_year
         years = [run.first_year + round(span * f / 5 / 100) * 100 for f in range(6)]
     draw = {"people": people_map, "density": density_map, "cultures": culture_map,
-            "families": family_map, "states": state_map, "arrival": arrival_map}[kind]
+            "families": family_map, "states": state_map, "technology": technology_map,
+            "arrival": arrival_map}[kind]
     tables = run.tables()
     cols = 2
     rows = (len(years) + 1) // cols
@@ -250,6 +275,8 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
               "cultures": "cultures (related ones in similar colours); dots = towns",
               "families": "language families; dots = towns",
               "states": "states (darker edges = borders, red = war fronts); dots = towns",
+              "technology": "metal age: sand = stone, orange = copper, gold = bronze, blue-grey = iron; "
+                            "hatched = writing",
               "arrival": "when people arrived: dark = earliest, light = latest, grey = not yet reached"}[kind]
     fig.suptitle(f"World {run.meta['world_seed']}, history seed {run.meta['sim_seed']}: {legend}", fontsize=11)
     style_figure(fig, axes.ravel(), colours)

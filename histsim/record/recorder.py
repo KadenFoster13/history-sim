@@ -80,6 +80,7 @@ class RunRecorder:
             self._statics_saved = getattr(self, "_statics_saved", set()) | set(new)
             path = os.path.join(self.dir, "statics.npz")
             existing = dict(np.load(path)) if os.path.exists(path) else {}
+            existing = {k: v for k, v in existing.items() if k not in self._statics_saved}
             np.savez_compressed(path, **existing, **{k: statics[k] for k in self._statics_saved})
 
     def _keyframe(self, state):

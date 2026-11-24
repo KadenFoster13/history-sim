@@ -9,7 +9,7 @@ Controls
   Step (or Right arrow)           one jump forward while paused
   Year slider (replay)            jump to any year
   Map buttons on the right        people, density, cultures, language families, states,
-                                  background only, arrival
+                                  technology (metal ages, writing), background only, arrival
   Background buttons              draw maps over terrain, biomes or plain white (remembered)
   Scroll to zoom around the cursor, drag to move, R to reset the view
   Drag sideways to turn the map (it wraps east-west); C cuts it where it crosses the
@@ -31,15 +31,16 @@ import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.widgets import Button, RadioButtons, Slider
 
-from ..analysis.maps import (BACKGROUNDS, MODE_COLOURS, TOWN_MIN, WAR_RED, arrival_map, base_map,
-                             culture_colours, culture_map, density_map, family_map, people_map,
-                             state_colours, state_map)
+from ..analysis.maps import (AGE_COLOURS, AGE_LABELS, BACKGROUNDS, MODE_COLOURS, TOWN_MIN, WAR_RED,
+                             arrival_map, base_map, culture_colours, culture_map, density_map, family_map,
+                             people_map, state_colours, state_map, technology_map)
 from ..core.calendar import label, real_year
 from ..systems.population import FARMING, FORAGING, HERDING
 from .enhance import EnhancedArea
 
 MODES = {"People": people_map, "Density": density_map, "Cultures": culture_map,
-         "Language families": family_map, "States": state_map, "Background only": None,
+         "Language families": family_map, "States": state_map, "Technology": technology_map,
+         "Background only": None,
          "Arrival": arrival_map}
 BACKGROUND_LABELS = {"Terrain": "terrain", "Biomes": "biomes", "White": "white"}
 SPEEDS = [1, 5, 10, 25, 50, 100, 250, 500]          # years per frame
@@ -234,7 +235,7 @@ class HistoryViewer:
 
     def _build_side_panel(self):
         x = 0.775
-        radio_ax = self.fig.add_axes([x, 0.685, 0.115, 0.225])
+        radio_ax = self.fig.add_axes([x, 0.672, 0.115, 0.24])
         radio_ax.set_title("Map", fontsize=11, loc="left", weight="bold")
         self.radio = RadioButtons(radio_ax, list(MODES), active=0, label_props={"fontsize": [9.5]},
                                   radio_props={"s": [60]})
@@ -575,6 +576,9 @@ class HistoryViewer:
         elif self.mode == "States":
             items = self._state_swatches(layers, tables)
             self._swatches(items + [(tuple(WAR_RED), "War front"), town])
+        elif self.mode == "Technology":
+            self._swatches([(AGE_COLOURS[k], AGE_LABELS[k]) for k in (0, 1, 2, 3)] + [town],
+                           note="hatched = writing")
         elif self.mode in ("Cultures", "Language families"):
             self._swatches(self._group_swatches(layers, tables) + [town],
                            note="related peoples have similar colours" if self.mode == "Cultures" else "")
@@ -887,6 +891,12 @@ class HistoryViewer:
                 langs = tables.get("languages") or []
                 fam = langs[rec["family"]].get("family_name", "") if rec["family"] < len(langs) else ""
                 parts.append(f"the {rec['name']} ({fam})" if fam else f"the {rec['name']}")
+            known = layers.get("tech")
+            if known is not None and known[r, c]:
+                from ..tech import AGE_NAMES, age_of, known_list
+                names = [t.name for t in known_list(known[r, c])]
+                shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+                parts.append(f"{AGE_NAMES[int(age_of(known[r, c]))]} age: {shown}")
         elif not (self.world.ocean[r, c] or self.world.lake[r, c]):
             parts.append("nobody lives here")
         size = layers.get("settlement")

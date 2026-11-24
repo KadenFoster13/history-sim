@@ -475,6 +475,61 @@ can hold a fifth of the world, and empires last 2-4 centuries, not 1,000+ years.
 - Then the phase 3 re-check: empire lifespans, the largest state's share, people in
   states, and the empires-as-regional-powers idea (states section, "Later").
 
+**Step 2 also reshapes how states grow (planned 2026-11-24).** Measured at 0.6.0 (worlds 31
+seed 2 and 22 seed 1, 800 px, every century 5000 BCE-1 CE):
+- *No pauses:* states take in 300-800 stateless cells every century, steadily; the big
+  states grow in 60-90% of centuries and hold steady in only 0-30%. Earth's grew in bursts
+  (Akkad, Qin, Rome's rise, the Inca, the Mongols: most conquest within 1-3 generations of
+  a take-off, often a new dynasty), then held for long plateaus (Egypt, Han, Rome after
+  Augustus).
+- *No limits:* thinly peopled land is the easiest to absorb (resistance grows with
+  density), so at 1 CE states hold 23% of tundra, 26% of boreal forest and 16% of alpine
+  land. Early states stopped where taxable grain farming ended: desert, steppe,
+  mountains, deep forest and swamp were not worth taking (Scott).
+- *Nothing falls back:* no land ever returns to statelessness, and ~25-30% of all state
+  land changes owner each century, so big states swing wildly (263 -> 871 -> 1,558 -> 202
+  -> 514 cells). On Earth collapse often left land without states for centuries (Britain
+  after Rome, the Maya lowlands, the Late Bronze Age collapse), and borders between
+  settled kingdoms mostly moved a little at a time.
+- *Chiefdoms too big:* states under 150,000 people have a median 12-19 cells (30,000-50,000
+  km2) and up to 190 cells; Earth's chiefdoms were a few thousand km2, a day or two's walk
+  across, and cycled: rose and broke up within a few generations (Anderson). On the map
+  chiefdoms, kingdoms and empires all look the same.
+
+Changes, built and calibrated with the technology of rule:
+- **Expansion drive:** each state has a drive to expand, high while it is young and
+  cohesive (a new dynasty, a rising people: Ibn Khaldun's asabiyyah) and fading with age;
+  conquest and fast growth add a pause to digest new land (overextension felt sooner).
+  Absorption and decisions to attack scale with it, so growth comes in pulses with
+  plateaus between. Later (phase 5) rulers and dynasties drive it.
+- **Absorb for what land is worth:** the chance of taking in stateless land rises with
+  its farmers and surplus (people per km2 in farming, intensity) instead of falling with
+  resistance; foragers' and herders' land, desert, tundra, forest and mountain stay
+  outside states unless densely farmed, so states stop at natural frontiers.
+- **Collapse can free land:** when a state breaks up or shrinks, poor outlying land
+  (sparse, foraging or herding, far from towns) may fall back to statelessness instead of
+  passing to a successor; chiefdoms often dissolve back into villages.
+- **Chiefdoms as their own tier:** reach ~100 km, little conquest (raids rather than
+  annexation), cohesion that fades fast, so they rise and break up within a few
+  generations; becoming a kingdom needs a city and, to hold far, the technology of rule
+  (writing, bureaucracy, roads: the reach and overextension effects above).
+- **Calmer borders:** wars between established kingdoms end sooner with smaller gains;
+  longer truces; attacking a state of similar strength is rarer (balance of power).
+- **Viewer:** chiefdoms paler and hatched with thin borders, kingdoms solid, empires with
+  bold borders; the kind in the hover and the legend; the same in the `states` maps.
+
+Targets for this part (800 px, worlds 31 and 22; averages across seeds near Earth's, single
+runs may stray):
+
+| Measure | Now (0.6.0) | Aim |
+|---|---|---|
+| Big states: centuries steady (+/-5%) | 0-30% | about half or more |
+| State land changing owner per century | ~25-30% | ~5-15% |
+| Land falling back to statelessness | never | some, after collapses |
+| Chiefdom size, median | 30,000-50,000 km2 | a few thousand km2 (1-3 cells at 800 px) |
+| State share of tundra, boreal forest, alpine at 1 CE | 16-26% | under ~5% |
+| People in states at 1 CE | 82-93% | 50-85% |
+
 **Economy and trade.**
 - **Surplus and wealth:** each cell produces food beyond its people's needs (from
   intensity) plus goods from local resources (copper, tin, gold, silver, salt, timber,
@@ -514,14 +569,59 @@ Plus the existing checks (population, cities, farming, wars) and 400 vs 800 px.
 **Steps** (each ends with something to run and watch):
 1. Technology core: the web, per-cell knowledge, discovery, spread and loss, names and
    chronicle, stats and a Technology map mode; no effects yet. Check discovery dates.
-2. Technology of rule and war: effects on reach, overextension, cohesion and war; the
-   phase 3 re-check (lifespans, largest state, people in states, regional empires).
+   **Built 2026-11-24 (histsim 0.6.0)**, see "Step 1 as built" below.
+2. Technology of rule and war: effects on reach, overextension, cohesion and war; how
+   states grow (expansion drive, absorbing land by its worth, land falling back after
+   collapse, chiefdoms as their own tier, calmer borders) and the viewer showing state
+   kinds; the phase 3 re-check (lifespans, largest state, people in states, regional
+   empires).
 3. Farming technology: plough, terraces, canals (per cell, replacing the global
    `canal_irrigation`), manuring; re-check population and densities.
 4. Economy and trade: surplus, wealth, trade routes and goods, trade spreading
    technology, towns on routes; trade overlay.
 5. Calibration on worlds 31 and 22 at 800 px, 400 vs 800 px, docs and decision log.
    Versions: histsim 0.6 (technology), 0.7 (trade).
+
+**Step 1 as built (histsim 0.6.0).** `histsim/tech.py` holds 22 technologies, each with
+prerequisites, `needs` (to use it, so to take it up from neighbours), `finds` (needed as
+well to find it first: iron is found near towns, then smelted by villagers wherever there
+is ore), `keeps` (what keeps it alive), a rarity and a `crowd` exponent. The `tech` layer
+(64-bit mask per cell) is updated every 10 years by `systems/technology.py`:
+- needs per cell: farming, settled farming, cattle or horses kept, a town within 150 km,
+  a state or kingdom, coast or big river, hills, and ore within reach (copper 500 km,
+  tin 2,000 km and gold or silver 1,000 km until trade carries them; iron 300 km);
+- discovery: per technology, a hazard of (people / 1M) x (1 + 3 near towns) x (people
+  within 300 km / 1M) ^ crowd / (rarity x 1,000 years), summed over the cells that could
+  find it; a find within 1,500 km of anyone who knows it doesn't count (it would spread);
+- spread ~2 km/year to neighbours that can use it (x3 along coasts and big rivers, x2
+  inside states); loss with a 150-year half-life where its keepers are gone, at once
+  where nobody is left;
+- each invention named in the inventors' language, in the chronicle and the `inventions`
+  table; stats `know_<tech>` (share of people), graphs by group, a Technology map mode
+  (stone, copper, bronze, iron; hatched = writing) and the hover lists what is known.
+No effects: every other system's history is exactly as in 0.5.2 (checked on world 31
+seed 1 to 1 CE: all stats and events the same). Cost ~5% of run time.
+
+Worlds 31 and 22 at 800 px, seeds 1-3, first finds (and how many independent inventions):
+
+| Technology | Earth | World 31 | World 22 | Accept |
+|---|---|---|---|---|
+| Writing | 3200 BCE, 3-4 | 4040-1620 BCE, 4-5 | 4260-3590 BCE, 3-7 | 5000-1000 BCE, 1-4 |
+| Bronze | 3300 BCE | 4640-1060 BCE | 4600-2850 BCE | 4500-1500 BCE |
+| Iron | 1200 BCE (spreads) | 2080-660 BCE | 2970-1270 BCE | 2500 BCE-500 CE |
+| Coinage | 600 BCE | 2930 BCE or never | 3090-420 BCE | 1500 BCE-500 CE |
+| Plough, wheel | 4000, 3500 BCE | never (seeds 2-3) | 4300-2360 BCE | |
+| Riding, chariot | 3500, 2000 BCE | 1260 BCE once, never | never | in that order |
+
+By 1 CE 18-61% of people live where writing is known, 12-31% where iron is, and lands
+without metals or writing remain on every run (target met). Still off, for step 5:
+- later technologies of rule (bureaucracy, law, siegecraft, coinage) follow writing within
+  a few centuries where Earth took 1-2 millennia: once a region qualifies its hazard is
+  large, so rarity has to change tenfold to matter; a slower, steadier discovery rule may
+  be better than more tuning;
+- writing is invented 5-7 times on world 22 (Earth 3-4);
+- horses are tamed so rarely that riding and chariots almost never appear, and world 31
+  has few cattle (no plough or wheel on two seeds, like the Americas): a farming question.
 
 **Risks.** Run time (per-cell knowledge and route-finding; budget about 25% more);
 everything interacts (technology raises populations and state sizes, which feed
@@ -768,6 +868,8 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | State growth to be reshaped in phase 4 step 2: states grew steadily with no pauses or limits, never gave land back, churned ~25-30% of their land a century, and chiefdoms were kingdom-sized. Plan: an expansion drive (pulses and plateaus), absorbing land by its worth, land falling back after collapse, chiefdoms as their own tier, calmer borders, state kinds shown in the viewer. Calibration judged on averages across worlds and seeds, not single runs |
+| 2026-11-24 | Phase 4 step 1 built (histsim 0.6.0): 22 technologies known per cell, found where needs are met and many connected people live, spread to neighbours that can use them, lost where their keepers are gone, named in the inventors' languages; Technology map mode and graphs; no effects yet (rest of history unchanged). 800 px: writing first 4260-1620 BCE with 3-7 inventions, bronze 4640-1060 BCE, iron 2970-660 BCE; later technologies of rule come too soon after writing (step 5) |
 | 2026-11-24 | O0 built (histsim 0.5.2): `bench` command with a history fingerprint, per-system run time in stats and graphs, climate maps every `step_years`, domestication only where possible. Same history as 0.5.1; 800 px to 1 CE ~475 s -> ~297 s (with saving) |
 | 2026-11-24 | Optimization planned (it is to become a game): targets (800 px: 100+ years/s to 1 CE, never below ~20 years/s later; a smooth viewer while simulating), a benchmark and per-system timings, a time budget per phase, and passes O0 (before phase 4), O1 (after 4), O2 (after 6) and O3 (before 9). Profile at 0.5.1: 475 s to 1 CE, farming ~40%, climate ~22%, states ~14% |
 | 2026-11-23 | Map size, states (histsim 0.4.1): border strength measured as on the 800-px map, coarse fronts cross open land then the defended core, coarse capitals fall when the front reaches the town. 400 px state count ~70% -> ~20% above 800 px (within seed spread); 800 px runs unchanged |

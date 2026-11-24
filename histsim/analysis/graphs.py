@@ -47,7 +47,12 @@ TITLES = {
     "wars": "Wars being fought",
     "wars_started": "Wars so far",
     "war_deaths_per_year": "Deaths in conquest per year",
+    "inventions": "Inventions (first finds and independent ones)",
+    "technologies_most": "Most technologies known in one place",
+    "technologies_mean": "Technologies known by the average person",
 }
+TECH_GROUP_TITLES = {"farming": "farming technology", "metals": "metals", "transport": "transport",
+                     "rule": "technology of rule", "building": "building and war"}
 
 # Earth, for the largest place: (simulation year, low, typical, high).
 LARGEST_PLACE_TARGETS = [(6_500, 5e3, 1e4, 4e4), (8_000, 2e4, 6e4, 1.5e5), (10_000, 2e5, 1e6, 2e6)]
@@ -79,6 +84,20 @@ def _plot_run_time(ax, years, timing, colours):
     _format_axis(ax)
 
 
+def _plot_knowing(ax, years, knowing, group, colours):
+    """Share of the world's people who know each technology of a group."""
+    from ..tech import TECHS
+    x = real_year(years)
+    for t in TECHS:
+        if t.group == group and t.key in knowing:
+            ax.plot(x, np.nan_to_num(knowing[t.key]), linewidth=1.2, label=t.name)
+    ax.set_ylim(0, 1)
+    ax.legend(fontsize=7, loc="upper left", ncol=2, frameon=False, labelcolor=colours["fg"])
+    ax.set_title(f"Share of people who know: {TECH_GROUP_TITLES.get(group, group)}", fontsize=10)
+    ax.grid(alpha=0.3, color=colours["grid"])
+    _format_axis(ax)
+
+
 def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     """A grid of time-series graphs for a run; saved to `out` (default: <run>/graphs.png).
 
@@ -96,9 +115,15 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     years = stats.pop("year")
     # Run time per system (cumulative seconds): drawn together in one graph.
     timing = {k[len("seconds_"):]: stats.pop(k) for k in list(stats) if k.startswith("seconds_")}
+    # Share of people knowing each technology: one graph per group of technologies.
+    knowing = {k[len("know_"):]: stats.pop(k) for k in list(stats) if k.startswith("know_")}
     names = [k for k in (keys or stats.keys()) if k in stats and np.isfinite(stats[k]).any()]
     if timing and (keys is None or "run_time" in keys):
         names.append("run_time")
+    from ..tech import GROUPS, TECHS
+    for group in GROUPS:
+        if any(t.group == group and t.key in knowing for t in TECHS) and (keys is None or f"tech_{group}" in keys):
+            names.append(f"tech_{group}")
     if not names:
         raise ValueError("no statistics to plot")
     cols = 2 if len(names) > 1 else 1
@@ -109,6 +134,9 @@ def plot_run(run_dir, out=None, keys=None, smooth_years=0, dark=None):
     for ax, name in zip(axes.ravel(), names):
         if name == "run_time":
             _plot_run_time(ax, years, timing, colours)
+            continue
+        if name.startswith("tech_"):
+            _plot_knowing(ax, years, knowing, name[len("tech_"):], colours)
             continue
         y = stats[name]
         if smooth_years and len(y) > smooth_years:
