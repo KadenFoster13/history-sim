@@ -34,6 +34,7 @@ class SimConfig:
     forager_density_per_npp: float = 0.00004   # people per km2 per g/m2/yr of plant growth
     coast_bonus: float = 1.0            # extra foragers on sea coasts (x1 + this)
     river_bonus: float = 0.6            # extra foragers by big rivers and lakes
+    river_forager_density: float = 0.01 # people per km2 by big rivers and lakes at least, even in desert
     forager_growth: float = 0.002       # yearly growth rate where there's room (falls to 0 at capacity)
 
     # ----------------------------------------------------------- farming
@@ -45,8 +46,10 @@ class SimConfig:
 
     # Domestication: chance per year for each suitable, crowded forager cell, before
     # adjusting for how hard the species is to tame and how crowded the cell is.
-    domestication_rate: float = 2.5e-7
+    domestication_rate: float = 5e-7
     farmer_domestication_bonus: float = 4.0   # people who already farm tame new species more readily
+    domestication_range_exponent: float = 0.25   # a species' total odds grow as (wild area) ** this
+    domestication_reference_km2: float = 6e6     # wild area (suitability-weighted) at the plain rate
     holocene_start_year: int = 300      # before this the climate is too unstable for farming
     # Spread of farming and herding to neighbouring cells (about 1 km per year historically).
     spread_rate: float = 0.012          # yearly chance a suitable neighbouring cell takes it up

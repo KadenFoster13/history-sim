@@ -317,6 +317,13 @@ class Farming(System):
         self._canals = None
         self.world_native = world.species_native
         self._apply_water(cfg)
+        # Taming odds barely depend on how much land a species grows wild on: it is tamed by
+        # the people who live with it, not by the size of its range. Each cell's chance is
+        # scaled so a whole range's chance grows only as (wild area) ** domestication_range_exponent
+        # (otherwise wide-ranging pigs and cattle always beat narrow-ranged wheat and llamas).
+        wild_km2 = (self.area[None] * self.suit_dry * self.world_native).reshape(self.n, -1).sum(1)
+        self.range_factor = ((cfg.domestication_reference_km2 / np.maximum(wild_km2, 1.0))
+                             ** (1 - cfg.domestication_range_exponent))
         # How easily farming spreads into each cell: faster along rivers and coasts (the
         # Danube, the Nile) and over good soil, slower over rough ground, and patchy
         # (local choices, chance).
@@ -495,7 +502,8 @@ class Farming(System):
                     continue
                 # Needs real crowding (pressure to find more food), and a species worth
                 # the effort: food plants and animals before fibre.
-                hazard = (cfg.domestication_rate * self.scale ** 2 * holocene * self.suit[i].ravel()[cells]
+                hazard = (cfg.domestication_rate * self.range_factor[i] * self.scale ** 2 * holocene
+                          * self.suit[i].ravel()[cells]
                           * crowding.ravel()[cells] ** 3 / sp.difficulty ** 2 * (0.15 + sp.food)
                           * np.where(farms_anything.ravel()[cells], cfg.farmer_domestication_bonus, 1.0))
                 # One origin per species per step at most: whether any cell tames it (the
@@ -692,16 +700,24 @@ class Farming(System):
 
 def _watered_suitability(world, is_crop, land):
     """Where each crop could grow if water were no limit (river-fed fields): rainfall and
-    the wet season stop mattering; warmth, height and the rest still do."""
+    the wet season stop mattering; warmth, height and the rest still do. Watered fields
+    can also be sown in the cool half of the year (winter wheat and barley on the Nile,
+    Euphrates and Indus floods), so a crop counts as fitting if either half suits it."""
     from worldgen.nature import species_suitability
     out = np.zeros((len(is_crop),) + land.shape, np.float32)
-    fields = ("ocean", "lake", "biome", "temperature_c", "elevation_m", "wetland")
-    for rain in (800.0, 1500.0):            # inside the rain range of every crop
-        proxy = SimpleNamespace(**{k: getattr(world, k) for k in fields})
-        proxy.precip_mm = np.full(land.shape, rain, np.float32)
-        proxy.growing_months = world.warm_months
-        proxy.fresh_water = np.ones(land.shape, np.float32)      # wet-field crops too
-        out = np.maximum(out, species_suitability(proxy))
+    fields = ("ocean", "lake", "biome", "elevation_m", "wetland")
+    coldest = getattr(world, "coldest_month_c", None)
+    seasons = [world.temperature_c]
+    if coldest is not None:
+        seasons.append((world.temperature_c + coldest) / 2)    # mean of the cool half-year
+    for temp in seasons:
+        for rain in (800.0, 1500.0):            # inside the rain range of every crop
+            proxy = SimpleNamespace(**{k: getattr(world, k) for k in fields})
+            proxy.temperature_c = temp
+            proxy.precip_mm = np.full(land.shape, rain, np.float32)
+            proxy.growing_months = world.warm_months
+            proxy.fresh_water = np.ones(land.shape, np.float32)      # wet-field crops too
+            out = np.maximum(out, species_suitability(proxy))
     out[~is_crop] = 0
     out[:, ~land] = 0
     return out

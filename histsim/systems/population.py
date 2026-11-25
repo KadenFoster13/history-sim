@@ -71,6 +71,7 @@ class Population(System):
         self.openness = self.shelf.fill(_by_biome(world.biome, OPENNESS, 0.7), world)
         rivers = band((cell_river_flow(world) > 200) | touches(world.lake), self.scale)
         self.aquatic = 1 + cfg.river_bonus * rivers
+        self.rivers = np.asarray(rivers, np.float32)
         self.base_temp = self.shelf.fill(world.temperature_c.astype(np.float32), world)
         self.base_precip = self.shelf.fill(world.precip_mm.astype(np.float32), world)
 
@@ -113,6 +114,11 @@ class Population(System):
                        self.base_precip.ravel(), np.ascontiguousarray(factor).ravel(), self.openness.ravel(),
                        np.ascontiguousarray(self.aquatic, np.float32).ravel(), self._coast.ravel(), self.area.ravel(),
                        cfg.forager_density_per_npp, cfg.coast_bonus, cap.ravel())
+        # Fish and waterfowl don't depend on the rain where the river runs: a big river or
+        # lake feeds some foragers even through desert (the Nile, the Euphrates, the Indus).
+        unfrozen = (self.base_temp + off) > -2
+        cap = np.maximum(cap, np.where(land & unfrozen, cfg.river_forager_density * self.rivers * self.area, 0)
+                         .astype(np.float32))
         state.cells["forager_capacity"] = cap
         return cap
 
