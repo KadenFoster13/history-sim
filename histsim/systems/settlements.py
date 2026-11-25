@@ -98,22 +98,29 @@ class Settlements(System):
         pop = state.cells["population"]
         mode = state.cells["subsistence"]
         since = state.cells["farming_since"]
-        never = since == -(2 ** 31)
-        since[never & (mode == FARMING)] = state.year
-        age = np.where(since > -(2 ** 31), state.year - since, 0)
-        complexity = smoothstep(cfg.town_delay_years, cfg.town_delay_years + cfg.town_ramp_years, age)
-
-        farm_pop = np.where(mode == FARMING, pop, 0) + 0.3 * np.where(mode == HERDING, pop, 0)
+        # Farming's age in each cell (time for crafts, trade, temples and chiefs), and the
+        # farmers (and some herders) who feed townspeople. Compiled, cell by cell.
+        complexity = np.empty(pop.shape)
+        farm_pop = np.empty(pop.shape)
+        _town_inputs(since.ravel(), mode.ravel(), pop.ravel(), state.year, FARMING, HERDING,
+                     cfg.town_delay_years, cfg.town_ramp_years, complexity.ravel(), farm_pop.ravel())
         r = max(1, round(cfg.hinterland_km / state.world.grid.km_per_px))
         hinter = _box(farm_pop, r, np.add)
-        hinter_area = _box(self.area * self.land, r, np.add)
-        density = hinter / np.maximum(hinter_area, 1e-6)
-        share = cfg.urban_share_max * complexity * np.clip(density / cfg.urban_density_ref, 0, 1)
+        if getattr(self, "_hinter_area_r", None) != r:          # land around each cell: fixed
+            self._hinter_area = _box(self.area * self.land, r, np.add)
+            self._hinter_area_r = r
         size = state.cells["settlement"]
         trade = state.tables.get("trade")
-        busy = trade.busy(state) if trade is not None else 0
-        site = self.site * (1 + cfg.trade_site * busy)                 # crossroads, ports
-        score = share * hinter * site * (1 + cfg.incumbency * (size > 0))
+        traded = state.cells["trade"] if trade is not None else np.zeros(1, np.float32)
+        # Each place's urban share, site (crossroads and ports count more), and its score
+        # as a central place.
+        share = np.empty(pop.shape)
+        site = np.empty(pop.shape)
+        score = np.empty(pop.shape)
+        _town_scores(hinter.ravel(), self._hinter_area.ravel(), complexity.ravel(), self.site.ravel(),
+                     traded.ravel(), trade is not None, cfg.trade_half, cfg.trade_site, size.ravel(),
+                     cfg.urban_share_max, cfg.urban_density_ref, cfg.incumbency,
+                     share.ravel(), site.ravel(), score.ravel())
         centre = (score > 0) & (score >= _box(score, r, np.maximum))
         quality = np.clip(site / self.site_mean, 0.5, 2.5)
         target = np.where(centre, cfg.central_place_share * share * hinter * quality, 0)
@@ -326,6 +333,34 @@ class Settlements(System):
             "largest_settlement": float(size.max()) if size.size else 0.0,
             "urban_share": float(size[towns].sum() + getattr(self, "_small_people", 0.0)) / total,
         })
+
+
+@njit(cache=True, parallel=True)
+def _town_inputs(since, mode, pop, year, farming, herding, delay, ramp, complexity, farm_pop):
+    never = np.int32(-(2 ** 31))
+    for i in prange(since.shape[0]):
+        m = mode[i]
+        if since[i] == never and m == farming:
+            since[i] = year
+        age = year - since[i] if since[i] != never else 0
+        t = min(max((age - delay) / ramp, 0.0), 1.0)
+        complexity[i] = t * t * (3 - 2 * t)
+        farm_pop[i] = pop[i] if m == farming else (0.3 * pop[i] if m == herding else 0.0)
+
+
+@njit(cache=True, parallel=True)
+def _town_scores(hinter, hinter_area, complexity, base_site, traded, has_trade, trade_half, trade_site, size,
+                 urban_share_max, urban_density_ref, incumbency, share, site, score):
+    for i in prange(hinter.shape[0]):
+        density = hinter[i] / max(hinter_area[i], 1e-6)
+        sh = urban_share_max * complexity[i] * min(max(density / urban_density_ref, 0.0), 1.0)
+        st = base_site[i]
+        if has_trade:
+            t = traded[i]
+            st = st * (1 + trade_site * t / (t + trade_half))
+        share[i] = sh
+        site[i] = st
+        score[i] = sh * hinter[i] * st * (1 + incumbency * (size[i] > 0))
 
 
 @njit(cache=True, parallel=True)

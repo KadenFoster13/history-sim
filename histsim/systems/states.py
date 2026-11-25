@@ -93,6 +93,89 @@ def _local_strength(own, dist, offset, reach, root_power, local):
         local[i] = root_power[s] * np.exp(-d / reach[s])
 
 
+_NEIGHBOURS8 = {}
+
+
+@njit(cache=True, parallel=True)
+def _absorb_kernel(own, pop, local, area, worth, expanding, cell_count, few_cells, nbr8, resistance, rate,
+                   best_owner, chance):
+    for i in prange(own.shape[0]):
+        if own[i] != 0 or not pop[i] > 0:
+            continue
+        bo = 0
+        bl = np.float32(0.0)
+        for k in range(4):                       # DIRECTIONS4 (the first 4 of DIRECTIONS8)
+            j = nbr8[k, i]
+            if own[j] > 0 and local[j] > bl:
+                bo = own[j]
+                bl = local[j]
+        if bo == 0:
+            continue
+        best_owner[i] = bo
+        density = pop[i] / max(area[i], 1e-6)
+        ratio = bl / (resistance * np.sqrt(max(density, 1e-3) * 2500))
+        way = worth[i] * expanding[bo]
+        hold = 0
+        for k in range(nbr8.shape[0]):
+            if own[nbr8[k, i]] == bo:
+                hold += 1
+        compact = min(max((hold - 1) / 2, 0.0), 2.0)
+        if cell_count[min(bo, cell_count.shape[0] - 1)] <= few_cells:
+            compact = max(compact, 0.5)
+        chance[i] = 1 - np.exp(-rate * min(max(ratio - 1, 0.0), 1.0) * way * compact)
+
+
+@njit(cache=True, parallel=True)
+def _front_kernel(own, local, keys, base_defence, works, open_defence, capitals, siege, siege_breach, war_edge,
+                  coarse_rate, fine_rate, scale, nbr8, best_p, best_owner):
+    for i in prange(own.shape[0]):
+        o = own[i]
+        if o == 0:
+            continue
+        bp = np.float32(0.0)
+        bo = 0
+        for k in range(4):                       # DIRECTIONS4
+            a = own[nbr8[k, i]]
+            if a == 0 or a == o:
+                continue
+            key = np.int64(a) * 65536 + np.int64(o)
+            pos = np.searchsorted(keys, key)
+            if pos >= keys.shape[0] or keys[pos] != key:
+                continue                         # not at war with each other
+            push = war_edge * np.log(max(local[nbr8[k, i]], 1e-9) / max(local[i], 1e-9))
+            defence = base_defence[i] + works[i] * (1 - siege_breach * siege[a])
+            if scale > 1:
+                q_open = coarse_rate / (1 + np.exp(min(max(-3 * (push - open_defence[i]), -50.0), 50.0)))
+                q_core = coarse_rate / (1 + np.exp(min(max(-3 * (push - defence), -50.0), 50.0)))
+                depth = (scale - 1) / 2 if capitals[i] else scale - 1
+                p = min(1 / (depth / max(q_open, 1e-12) + 1 / max(q_core, 1e-12)), 1.0)
+            else:
+                p = min(fine_rate / (1 + np.exp(-3 * (push - defence))), 1.0)
+            cnt = 0
+            for m in range(nbr8.shape[0]):
+                if own[nbr8[m, i]] == a:
+                    cnt += 1
+            p = p * min(max(cnt / 3, 1 / 3), 5 / 3)
+            if p > bp:
+                bp = p
+                bo = a
+        best_p[i] = bp
+        best_owner[i] = bo
+
+
+@njit(cache=True, parallel=True)
+def _surrounded_kernel(own, owner, nbr, count):
+    for i in prange(own.shape[0]):
+        o = owner[i]
+        if o <= 0:
+            continue
+        c = 0
+        for k in range(nbr.shape[0]):
+            if own[nbr[k, i]] == o:
+                c += 1
+        count[i] = c
+
+
 def empire_bar(cfg, world_people):
     """People a state needs to count as an empire. An empire is big for its time: the
     biggest states grew as the world filled, though more slowly than its people (Akkad
@@ -487,27 +570,23 @@ class States(System):
         free = (own == 0) & (pop > 0)
         if not free.any() or not (own > 0).any():
             return
+        # For each stateless village: the strongest neighbouring state, and the chance it
+        # takes the village in (compiled, cell by cell):
+        # - resistance grows with how many people live there per km2 (the same at any map
+        #   resolution);
+        # - land is taken in for what it is worth (farmers to tax), by states eager to grow:
+        #   sparse foragers' and herders' land, tundra, desert and deep forest stay outside;
+        # - borders fill in rather than reach out: a village half surrounded by a state joins
+        #   readily, one at the tip of a thin finger hardly at all (no stringy borders); a
+        #   state of a few cells grows outward all round (it has no borders to fill in yet).
+        n = len(self.cell_count)
+        expanding = self._expanding(np.arange(n)).astype(np.float64)
         best_owner = np.zeros_like(own)
-        best_local = np.zeros(own.shape, np.float32)
-        for dy, dx in DIRECTIONS4:
-            no, nl = shift(own, dy, dx), shift(self.local, dy, dx)
-            better = free & (no > 0) & (nl > best_local)
-            best_owner = np.where(better, no, best_owner)
-            best_local = np.where(better, nl, best_local)
-        # Resistance from how many people live there per km2 (the same at any map resolution).
-        density = pop / np.maximum(self.area, 1e-6)
-        ratio = best_local / (cfg.absorb_resistance * np.sqrt(np.maximum(density, 1e-3) * 2500))
-        # Land is taken in for what it is worth (farmers to tax), by states eager to grow:
-        # sparse foragers' and herders' land, tundra, desert and deep forest stay outside.
-        way = self.worth * self._expanding(best_owner)
-        # Borders fill in rather than reach out: a village half surrounded by a state joins
-        # readily, one at the tip of a thin finger hardly at all (no stringy borders).
-        hold = self._surrounded(own, best_owner)
-        compact = np.clip((hold - 1) / 2, 0, 2)
-        # (a state of a few cells grows outward all round: it has no borders to fill in yet)
-        counts = self.cell_count[np.minimum(best_owner, len(self.cell_count) - 1)]
-        compact = np.where(counts <= cells_for(4, self.scale), np.maximum(compact, 0.5), compact)
-        chance = 1 - np.exp(-cfg.absorb_rate / (self.scale * rounds) * dt * np.clip(ratio - 1, 0, 1) * way * compact)
+        chance = np.zeros(own.shape)
+        nbr8 = self._nbr8(own.shape)
+        _absorb_kernel(own.ravel(), pop.ravel(), self.local.ravel(), self.area.ravel(), self.worth.ravel(),
+                       expanding, self.cell_count, cells_for(4, self.scale), nbr8, cfg.absorb_resistance,
+                       cfg.absorb_rate / (self.scale * rounds) * dt, best_owner.ravel(), chance.ravel())
         take = hits(self.rng, free & (best_owner > 0), chance)
         if take.any():
             own[take] = best_owner[take]
@@ -552,31 +631,18 @@ class States(System):
         base_defence = self.defence
         siege = self.knows["siegecraft"]
         open_defence = self.hill_defence
+        # For each cell next to an enemy at war with its state: the chance each attacker
+        # takes it (local strength against defence; on coarse maps the front crosses open
+        # country and then the defended core: see _coarse_take), more where the attacker
+        # half surrounds it (fronts move as lines, not diamonds along the map grid); the
+        # likeliest attacker is kept. Compiled, cell by cell.
         best_p = np.zeros(own.shape, np.float32)
         best_owner = np.zeros_like(own)
-        for dy, dx in DIRECTIONS4:
-            attacker = shift(own, dy, dx)
-            at_war = (attacker > 0) & (own > 0) & (attacker != own)
-            if not at_war.any():
-                continue
-            pair = attacker.astype(np.int64) * 65536 + own
-            at_war &= np.isin(pair, keys)
-            if not at_war.any():
-                continue
-            push = cfg.war_edge * np.log(np.maximum(shift(self.local, dy, dx), 1e-9)
-                                         / np.maximum(self.local, 1e-9))
-            defence = base_defence + works * (1 - cfg.siege_breach * siege[attacker])
-            if self.scale > 1:
-                p = self._coarse_take(cfg.war_rate * dt, push, open_defence, defence, capitals)
-            else:
-                edge = push - defence
-                p = np.minimum(cfg.war_rate / (self.scale * rounds) * dt / (1 + np.exp(-3 * edge)), 1.0)
-            # Fronts move as lines: cells the attacker half surrounds fall sooner than
-            # spearheads (otherwise conquests grow as diamonds along the map grid).
-            p = p * np.clip(self._surrounded(own, attacker) / 3, 1 / 3, 5 / 3)
-            better = at_war & (p > best_p)
-            best_p = np.where(better, p, best_p)
-            best_owner = np.where(better, attacker, best_owner)
+        _front_kernel(own.ravel(), self.local.ravel(), np.sort(keys), np.ascontiguousarray(base_defence).ravel(),
+                      np.ascontiguousarray(works, np.float64).ravel(), np.ascontiguousarray(open_defence).ravel(),
+                      capitals.ravel(), siege.astype(np.float64), cfg.siege_breach, cfg.war_edge,
+                      cfg.war_rate * dt, cfg.war_rate / (self.scale * rounds) * dt, self.scale, self._nbr8(own.shape),
+                      best_p.ravel(), best_owner.ravel())
         flip = hits(self.rng, best_owner > 0, best_p)
         if not flip.any():
             return
@@ -616,11 +682,21 @@ class States(System):
 
     @staticmethod
     def _surrounded(own, owner):
-        """How many of each cell's 8 neighbours belong to `owner` (an array of state ids)."""
+        """How many of each cell's 8 neighbours belong to `owner` (an array of state ids).
+        (Compiled; neighbours as `shift` sees them.)"""
         count = np.zeros(own.shape, np.float32)
-        for dy, dx in DIRECTIONS8:
-            count += (shift(own, dy, dx) == owner) & (owner > 0)
+        _surrounded_kernel(np.ascontiguousarray(own).ravel(), np.ascontiguousarray(owner).ravel(),
+                           States._nbr8(own.shape), count.ravel())
         return count
+
+    @staticmethod
+    def _nbr8(shape):
+        """Each cell's 8 neighbours (flat indices, DIRECTIONS8 order, as `shift` sees them)."""
+        if shape not in _NEIGHBOURS8:
+            h, w = shape
+            index = np.arange(h * w).reshape(h, w)
+            _NEIGHBOURS8[shape] = np.stack([shift(index, dy, dx).ravel() for dy, dx in DIRECTIONS8])
+        return _NEIGHBOURS8[shape]
 
     def _capital_falls(self, state, loser, winner):
         records = state.tables["states"]

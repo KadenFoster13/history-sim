@@ -170,12 +170,12 @@ class Technology(System):
         trade = state.tables.get("trade")
         offer = trade.offer if trade is not None else None
         for _ in range(rounds):
-            near = np.zeros_like(tech)
-            for k in range(4):
-                near |= tech[self.neighbours[k]]
+            # What neighbours (and trading partners) know, for the cells with people only.
+            nb = self.neighbours[:, idx]
+            near = tech[nb[0]] | tech[nb[1]] | tech[nb[2]] | tech[nb[3]]
             if offer is not None:
-                near |= offer                      # what trading partners know
-            cand = near[idx] & ~known & usable
+                near |= offer[idx]                 # what trading partners know
+            cand = near & ~known & usable
             j = np.flatnonzero(cand)
             if not len(j):
                 break

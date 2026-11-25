@@ -49,14 +49,14 @@ def draws_at(rng, n, idx):
     bg = rng.bit_generator
     kept = _buffer(bg)
     out = np.empty(len(idx))
+    cuts = np.searchsorted(idx, ends, side="left")            # where each block's wanted numbers end
     pos = k = 0
-    for s, e in zip(starts.tolist(), ends.tolist()):
+    for s, e, cut in zip(starts.tolist(), ends.tolist(), cuts.tolist()):
         if s > pos:
             bg.advance(s - pos)
         block = rng.random(e - s)
-        sel = idx[k:k + count_in(idx, k, e)] - s
-        out[k:k + len(sel)] = block[sel]
-        k += len(sel)
+        out[k:cut] = block[idx[k:cut] - s]
+        k = cut
         pos = e
     if n > pos:
         bg.advance(int(n - pos))
@@ -65,11 +65,6 @@ def draws_at(rng, n, idx):
 
 
 GAP = 64
-
-
-def count_in(idx, k, end):
-    """How many of the sorted `idx`, from position k on, are below `end`."""
-    return int(np.searchsorted(idx, end, side="left")) - k
 
 
 def _buffer(bg):

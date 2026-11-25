@@ -102,13 +102,17 @@ class Population(System):
         """People each cell can feed by foraging this year (whole cell, not per km2)."""
         cfg, world = state.config, state.world
         climate = state.climate
-        temp = self.base_temp + (climate.temperature_offset_c if climate else 0)
-        precip = self.base_precip * (climate.precip_factor if climate else 1)
-        coast = np.where(land, band(touches(~land & ~world.lake), self.scale), 0)
-        density = (cfg.forager_density_per_npp * plant_growth(temp, precip) * self.openness
-                   * (self.aquatic + cfg.coast_bonus * coast))
-        density = np.where(temp < -12, 0, density)        # under ice
-        cap = np.where(land, density * self.area, 0).astype(np.float32)
+        key = np.packbits(land).tobytes()                 # the coastline moves with the sea
+        if getattr(self, "_coast_key", None) != key:
+            self._coast = np.where(land, band(touches(~land & ~world.lake), self.scale), 0).astype(np.float32)
+            self._coast_key = key
+        off = climate.temperature_offset_c if climate else np.zeros(land.shape, np.float32)
+        factor = climate.precip_factor if climate else np.ones(land.shape, np.float32)
+        cap = np.zeros(land.shape, np.float32)
+        _forage_kernel(np.ascontiguousarray(land).ravel(), self.base_temp.ravel(), np.ascontiguousarray(off).ravel(),
+                       self.base_precip.ravel(), np.ascontiguousarray(factor).ravel(), self.openness.ravel(),
+                       np.ascontiguousarray(self.aquatic, np.float32).ravel(), self._coast.ravel(), self.area.ravel(),
+                       cfg.forager_density_per_npp, cfg.coast_bonus, cap.ravel())
         state.cells["forager_capacity"] = cap
         return cap
 
@@ -270,6 +274,24 @@ def _migrate(pop, cap, rate, rounds):
         _pressure(pop, cap, pressure)
         _migrate_round(pop, cap, rate, pressure, new)
         pop[:] = new
+
+
+@njit(cache=True, parallel=True)
+def _forage_kernel(land, base_temp, offset, base_precip, factor, openness, aquatic, coast, area, per_npp,
+                   coast_bonus, cap):
+    """Foragers each cell can feed: from plant growth (the Miami model, as `plant_growth`),
+    open land, rivers and lakes, and coasts; nobody under the ice."""
+    for i in prange(land.shape[0]):
+        if not land[i]:
+            continue
+        t = base_temp[i] + offset[i]
+        if t < -12:
+            continue
+        p = base_precip[i] * factor[i]
+        by_warmth = 3000 / (1 + np.exp(1.315 - 0.119 * t))
+        by_rain = 3000 * (1 - np.exp(-0.000664 * max(p, 0.0)))
+        npp = min(by_warmth, by_rain)
+        cap[i] = per_npp * npp * openness[i] * (aquatic[i] + coast_bonus * coast[i]) * area[i]
 
 
 def _arrival_from_finer_map(world, cfg, rng, voyages):

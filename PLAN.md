@@ -217,6 +217,17 @@ benchmark below), then for the game:
   vary with their history (world 31 seed 1: 134 s with 513 states at 1 CE; world 22
   seed 1: 153 s). The states system now takes the most time where there are many states
   (python loops over states in admin, decisions, capitals): the next target.
+  **Fourth round 2026-11-24 (histsim 0.7.7):** compiled the states' absorption of land,
+  war fronts and neighbour counts (`_surrounded`), the settlements' step (farming age,
+  hinterland shares, sites and scores; the hinterland's land area computed once), forager
+  capacity (the coastline recomputed only when the sea moves), and the technology spread's
+  neighbour check over inhabited cells only; random-number skipping without per-block
+  searches. Every event is again the same as 0.7.6 on all six runs. 800 px to 1 CE: world
+  31 seed 1 134 s -> 102 s (98 years/s), world 22 seed 1 153 s -> 112 s (90 years/s); the
+  six-run batch ~28% faster. Since O1 began: 320 s -> ~100-112 s, about 3x. Time now spread
+  across all systems (states ~20%, farming ~20%, settlements ~16%, cultures ~13%,
+  technology ~11%, population ~7%); the 100 years/s target is reached on one world and
+  close on the other. What remains is many smaller pieces; O2 (after phase 6) re-profiles.
 - **After phase 6 (O2):** re-profile with religions, disease and nomads; fix what grew.
 - **Before phase 9 (O3, game pass):** simulation and viewer separated, rendering, start
   time, memory and save size, the compiled-core decision; then the 20 years/s floor is
@@ -1148,6 +1159,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | O1 part 2, fourth round (histsim 0.7.7): states' absorption and war fronts, settlements' step, forager capacity compiled; events identical to 0.7.6 on six runs. 800 px to 1 CE ~100-112 s (90-98 years/s), about 3x faster than before O1 |
 | 2026-11-24 | O1 part 2, third round (histsim 0.7.6): kernels on all cores, parallel migration, all species' frontiers in one pass (all exact); domestication drawn with two random numbers per species instead of one per cell (same odds; six runs within the seed spread of 0.7.2). ~75-81 years/s at 800 px depending on the history; the states system is next |
 | 2026-11-24 | O1 part 2, second round (histsim 0.7.5): states' totals, farming per-species work, settlements, cultures and technology needs compiled; climate patterns summed in one pass (worldgen 1.5.2); events identical to 0.7.2 on six runs. 800 px to 1 CE 176 s -> 135 s (74 years/s; 320 s before O1) |
 | 2026-11-24 | O1 part 2, first round (histsim 0.7.4): random numbers drawn only where used (exact), and farming capacity, growth, migration, intensification and box sums compiled; events identical to 0.7.2 on six runs, stats within 0.12%. 800 px to 1 CE 221 s -> 176 s (57 years/s) |
