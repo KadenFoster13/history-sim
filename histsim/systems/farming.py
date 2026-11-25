@@ -37,16 +37,246 @@
 from types import SimpleNamespace
 
 import numpy as np
+from numba import njit, prange
 from worldgen import SPECIES
 from worldgen.generator import distance_to
 
 from ..core.calendar import label
+from ..core.rng import draws_at, hits
 from ..core.simulation import System
-from .geo import DIRECTIONS4, band, cell_area_km2, cell_scale, neighbour_count, rounds_for
+from .geo import DIRECTIONS4, band, cell_area_km2, cell_scale, neighbour_count, neighbour_index, rounds_for
 from .population import FARMING, FORAGING, HERDING, OPENNESS, _by_biome
 
 TSETSE_SENSITIVE = {"cattle", "horse", "camel"}
 INDEPENDENT_KM = 1000      # a domestication this far from any farming counts as a new origin
+
+
+@njit(cache=True)
+def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, slope, arable_eff,
+                  consts):
+    """The intensification ceiling of one cell (see Farming.ceiling)."""
+    steep_slope, rainfed, plough_c, manure_c, irrigated, paddy_c = (consts[0], consts[1], consts[2], consts[3],
+                                                                    consts[4], consts[5])
+    t = tech[i] if has_tech else np.uint64(0)
+    one = np.uint64(1)
+    canals = (t >> np.uint64(bits[0])) & one
+    terraces = (t >> np.uint64(bits[1])) & one
+    plough = (t >> np.uint64(bits[2])) & one
+    manure = (t >> np.uint64(bits[3])) & one
+    water = min(max(flood[i] / 0.4, 0.0), 1.0)
+    dug = irrigable[i] * dryness[i] * canals
+    if dug > water:
+        water = dug
+    steep = slope[i] / (2 * steep_slope if terraces else steep_slope)
+    quality = min(max(arable_eff[i] / 0.6, 0.3), 1.0) * min(max(1 - steep, 0.3), 1.0)
+    rain = (rainfed - 1) * (1 + plough_c * plough + manure_c * manure)
+    top = (rain + (irrigated - 1 - rain) * water) * quality
+    if wet >= 0 and (tamed[i] >> np.uint32(wet)) & np.uint32(1):
+        top = top * (1 + (paddy_c - 1) * min(max(suit_wet[i], 0.0), 1.0))
+    return 1 + top
+
+
+@njit(cache=True, parallel=True)
+def _ceiling_kernel(tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, slope, arable_eff,
+                    consts, out):
+    for i in prange(out.shape[0]):
+        out[i] = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, slope,
+                               arable_eff, consts)
+
+
+@njit(cache=True, parallel=True)
+def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
+                     tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c, slope, arable_eff,
+                     consts, intensity, has_intensity, arable, flood, grazing, area,
+                     farmer_density, herder_density, flood_yield, cap, mode):
+    for i in prange(land.shape[0]):
+        if not land[i]:
+            continue
+        weather = min(max(precip[i], 0.3), 1.2) * (1 - 0.08 * max(0.0, -cold[i]))
+        crops = crop_best[i] + 0.25 * (crop_sum[i] - crop_best[i])
+        farm = farmer_density * crops * arable[i] * weather * (1 + flood_yield * flood[i])
+        if has_intensity:
+            ceil = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c,
+                                 slope, arable_eff, consts)
+            farm = farm * (1 + (ceil - 1) * intensity[i])
+        herding = herder_density * min(herd[i], 2.0) * grazing[i] * weather
+        a = max(area[i], 1e-6)
+        best, m = forage[i] / a, 1
+        if herding > best:
+            best, m = herding, 2
+        if farm + 0.3 * herding > best:
+            best, m = farm + 0.3 * herding, 3
+        c = best * area[i]
+        cap[i] = c
+        mode[i] = m if c > 0 else 0
+
+
+@njit(cache=True, parallel=True)
+def _intensify_kernel(intensity, pop, cap, mode, area, own, has_own, farming_mode, dt, intensify_pressure,
+                      intensify_density, intensity_neighbour, state_intensify, intensify_years, intensity_start,
+                      decay_years):
+    h, w = intensity.shape
+    old = intensity.copy()
+    for yy in prange(h):
+        y = np.int64(yy)
+        up = y - 1 if y > 0 else y
+        down = y + 1 if y < h - 1 else y
+        for x in range(w):
+            i0 = old[y, x]
+            p, c = pop[y, x], cap[y, x]
+            farming = mode[y, x] == farming_mode and p > 0
+            pressure = p / max(c, 1e-6) if c > 0 else 0.0
+            if farming:
+                filling = min(max((pressure - intensify_pressure) / 0.1 + 0.5, 0.0), 1.0)
+                density = p / max(area[y, x], 1e-6)
+                push = filling * min(max(density / intensify_density, 0.0), 3.0)
+                lead = 0.0
+                for n in (old[y, x + 1 if x < w - 1 else 0], old[y, x - 1 if x > 0 else w - 1],
+                          old[down, x], old[up, x]):
+                    if n - i0 > lead:
+                        lead = n - i0
+                speed = 1 + intensity_neighbour * min(lead, 1.0)
+                if has_own and own[y, x] > 0:
+                    speed *= 1 + state_intensify
+                gain = dt / intensify_years * push * speed * (intensity_start + i0)
+                v = i0 + min(gain, 1.0) * (1 - i0)
+                slack = min(max((0.5 - pressure) / 0.5, 0.0), 1.0)
+            else:
+                v = i0
+                slack = 1.0
+            intensity[y, x] = v * 0.5 ** (dt / decay_years * slack)
+
+
+@njit(cache=True)
+def _food_kernel(tamed, suit, maturity, food, is_crop, crop_best, crop_sum, herd):
+    """Food per km2 from each cell's tamed species: the best crop, all crops, and herds."""
+    n = suit.shape[0]
+    for c in range(tamed.shape[0]):
+        bits = tamed[c]
+        if bits == 0:
+            continue
+        for i in range(n):
+            if (bits >> np.uint32(i)) & np.uint32(1):
+                v = suit[i, c] * maturity[i, c] * food[i]
+                if is_crop[i]:
+                    if v > crop_best[c]:
+                        crop_best[c] = v
+                    crop_sum[c] += v
+                else:
+                    herd[c] += v
+
+
+@njit(cache=True)
+def _mature_kernel(tamed, maturity, gains):
+    """Tamed crops and animals improve toward full maturity."""
+    n = maturity.shape[0]
+    for c in range(tamed.shape[0]):
+        bits = tamed[c]
+        if bits == 0:
+            continue
+        for i in range(n):
+            if (bits >> np.uint32(i)) & np.uint32(1):
+                m = maturity[i, c]
+                maturity[i, c] = m + (1 - m) * gains[i]
+
+
+@njit(cache=True)
+def _frontier(tamed, i, people, suit, nbr):
+    """Cells species `i` could spread into (not grown there, a neighbour grows it, people
+    live there, it can grow there) and how many neighbours grow it."""
+    bit = np.uint32(1) << np.uint32(i)
+    n = tamed.shape[0]
+    out = np.empty(n, np.int64)
+    near = np.empty(n, np.int8)
+    k = 0
+    for c in range(n):
+        if (tamed[c] & bit) or not people[c] or not suit[c] > 0.3:
+            continue
+        cnt = 0
+        for d in range(4):
+            if tamed[nbr[d, c]] & bit:
+                cnt += 1
+        if cnt > 0:
+            out[k] = c
+            near[k] = cnt
+            k += 1
+    return out[:k], near[:k]
+
+
+@njit(cache=True)
+def _edge_cells(here, corridor, nbr):
+    """Cells on a river or coast corridor where a species is grown and at least one
+    neighbour isn't (pioneers set out from these)."""
+    n = here.shape[0]
+    out = np.empty(n, np.int64)
+    k = 0
+    for c in range(n):
+        if not here[c] or not corridor[c]:
+            continue
+        cnt = 0
+        for d in range(4):
+            if here[nbr[d, c]]:
+                cnt += 1
+        if cnt < 4:
+            out[k] = c
+            k += 1
+    return out[:k]
+
+
+@njit(cache=True)
+def _all_fronts(tamed, people, suit_ok, corridor, nbr, n):
+    """For every species at once: its frontier cells (where it could spread, as `_frontier`)
+    with how many neighbours grow it, and its pioneer cells (as `_edge_cells`), each sorted
+    by cell and grouped by species (`*_start[i]` .. `*_start[i + 1]`)."""
+    cells = tamed.shape[0]
+    f_count = np.zeros(n, np.int64)
+    e_count = np.zeros(n, np.int64)
+    for pass_ in range(2):
+        if pass_ == 1:
+            f_start = np.zeros(n + 1, np.int64)
+            e_start = np.zeros(n + 1, np.int64)
+            for i in range(n):
+                f_start[i + 1] = f_start[i] + f_count[i]
+                e_start[i + 1] = e_start[i] + e_count[i]
+            f_cell = np.empty(f_start[n], np.int64)
+            f_near = np.empty(f_start[n], np.int8)
+            e_cell = np.empty(e_start[n], np.int64)
+            f_fill = f_start[:n].copy()
+            e_fill = e_start[:n].copy()
+        for c in range(cells):
+            bits = tamed[c]
+            n0 = tamed[nbr[0, c]]
+            n1 = tamed[nbr[1, c]]
+            n2 = tamed[nbr[2, c]]
+            n3 = tamed[nbr[3, c]]
+            around = n0 | n1 | n2 | n3
+            if bits == 0 and around == 0:
+                continue
+            for i in range(n):
+                b = np.uint32(1) << np.uint32(i)
+                if bits & b:
+                    if corridor[c]:
+                        cnt = (n0 & b != 0) + (n1 & b != 0) + (n2 & b != 0) + (n3 & b != 0)
+                        if cnt < 4:
+                            if pass_ == 0:
+                                e_count[i] += 1
+                            else:
+                                e_cell[e_fill[i]] = c
+                                e_fill[i] += 1
+                elif around & b and people[c] and suit_ok[i, c]:
+                    cnt = (n0 & b != 0) + (n1 & b != 0) + (n2 & b != 0) + (n3 & b != 0)
+                    if pass_ == 0:
+                        f_count[i] += 1
+                    else:
+                        f_cell[f_fill[i]] = c
+                        f_near[f_fill[i]] = cnt
+                        f_fill[i] += 1
+    return f_start, f_cell, f_near, e_start, e_cell
+
+
+def rng_index(t, take):
+    """Positions of the (sorted) cells `take` within the sorted cells `t`."""
+    return np.searchsorted(t, take)
 
 
 class Farming(System):
@@ -150,28 +380,30 @@ class Farming(System):
         crop_best = np.zeros(land.shape, np.float32)
         crop_sum = np.zeros(land.shape, np.float32)
         herd = np.zeros(land.shape, np.float32)
-        for i in np.flatnonzero(self._present(tamed)):
-            here = (tamed & np.uint32(1 << i)) != 0
-            value = np.where(here, self.suit[i] * maturity[i] * self.food[i], 0)
-            if self.is_crop[i]:
-                crop_best = np.maximum(crop_best, value)
-                crop_sum += value
-            else:
-                herd += value
-        crops = crop_best + 0.25 * (crop_sum - crop_best)          # a varied package helps
-        weather = 1.0
+        n_sp = self.n
+        _food_kernel(tamed.ravel(), self.suit.reshape(n_sp, -1), maturity.reshape(n_sp, -1), self.food,
+                     self.is_crop, crop_best.ravel(), crop_sum.ravel(), herd.ravel())
+        # The rest, cell by cell (compiled): a varied package of crops helps; the weather;
+        # floodplains renew their soil every year (silt: up to 1 + flood_yield times the
+        # harvest); intensity up to each cell's ceiling; herding on open land. Each cell lives
+        # by whichever of foraging, herding and farming feeds the most people.
         if climate is not None:
-            weather = np.clip(climate.precip_factor, 0.3, 1.2) * (1 - 0.08 * np.maximum(0, -climate.temperature_offset_c))
-        # Floodplains renew their soil every year (silt): up to (1 + flood_yield) times the harvest.
-        farm = cfg.farmer_density * crops * self.arable * weather * (1 + cfg.flood_yield * self.flood)
+            precip = np.ascontiguousarray(climate.precip_factor, np.float32)
+            cold = np.ascontiguousarray(climate.temperature_offset_c, np.float32)
+        else:
+            precip = np.ones(land.shape, np.float32)
+            cold = np.zeros(land.shape, np.float32)
         intensity = state.cells.get("intensity")
-        if intensity is not None:
-            farm = farm * (1 + (self.ceiling(state) - 1) * intensity)
-        herding = cfg.herder_density * np.minimum(herd, 2.0) * self.grazing * weather
-        per_km2 = np.stack([forage / np.maximum(self.area, 1e-6), herding, farm + 0.3 * herding])
-        mode = np.argmax(per_km2, axis=0) + 1                     # FORAGING, HERDING, FARMING
-        cap = np.where(land, per_km2.max(axis=0) * self.area, 0).astype(np.float32)
-        return cap, np.where(cap > 0, mode, 0).astype(np.uint8)
+        cap = np.zeros(land.shape, np.float32)
+        mode = np.zeros(land.shape, np.uint8)
+        _capacity_kernel(np.ascontiguousarray(land).ravel(), crop_best.ravel(), crop_sum.ravel(), herd.ravel(),
+                         np.ascontiguousarray(forage, np.float32).ravel(), precip.ravel(), cold.ravel(),
+                         *self._ceiling_inputs(state),
+                         np.zeros(1, np.float32) if intensity is None else intensity.ravel(),
+                         intensity is not None, self.arable.ravel(), self.flood.ravel(), self.grazing.ravel(),
+                         self.area.ravel(), cfg.farmer_density, cfg.herder_density, cfg.flood_yield,
+                         cap.ravel(), mode.ravel())
+        return cap, mode
 
     def knows(self, state, key):
         """Cells whose people know a technology (False everywhere without the technology system)."""
@@ -185,23 +417,28 @@ class Farming(System):
         """The most each cell's farmland can be intensified (x what it feeds unintensified):
         rain-fed fields up to `rainfed_ceiling`, more with the plough and with manuring;
         floodplains, and dry irrigable land where canals are dug, up to `irrigated_ceiling`;
-        more for rice-like paddies; less on poor or steep land (terraces halve that)."""
+        more for rice-like paddies; less on poor or steep land (terraces halve that).
+        (Worked out cell by cell in `_ceiling_cell`, shared with `capacity`.)"""
+        out = np.zeros(state.shape, np.float32)
+        _ceiling_kernel(*self._ceiling_inputs(state), out.ravel())
+        return out
+
+    def _ceiling_inputs(self, state):
+        from ..tech import INDEX
         cfg = state.config
-        canals = self.irrigable * self.dryness * self.knows(state, "canals")
-        water = np.maximum(np.clip(self.flood / 0.4, 0, 1), canals)
-        steep = self.slope / np.where(self.knows(state, "terraces"), 2 * cfg.steep_slope, cfg.steep_slope)
-        quality = np.clip(self.arable_eff / 0.6, 0.3, 1) * np.clip(1 - steep, 0.3, 1)
-        rain = (cfg.rainfed_ceiling - 1) * (1 + cfg.plough_ceiling * self.knows(state, "plough")
-                                            + cfg.manuring_ceiling * self.knows(state, "manuring"))
-        top = (rain + (cfg.irrigated_ceiling - 1 - rain) * water) * quality
-        if self.wet_grain is not None:
-            paddy = np.where(self.has(state, self.wet_grain), np.clip(self.suit[self.wet_grain], 0, 1), 0)
-            top = top * (1 + (cfg.paddy_ceiling - 1) * paddy)
-        return (1 + top).astype(np.float32)
+        tech = state.cells.get("tech")
+        tech = np.zeros(1, np.uint64) if tech is None else tech.ravel()
+        wet = self.wet_grain if self.wet_grain is not None else -1
+        suit_wet = self.suit[wet].ravel() if wet >= 0 else np.zeros(1, np.float32)
+        bits = np.array([INDEX["canals"], INDEX["terraces"], INDEX["plough"], INDEX["manuring"]], np.int64)
+        consts = np.array([cfg.steep_slope, cfg.rainfed_ceiling, cfg.plough_ceiling, cfg.manuring_ceiling,
+                           cfg.irrigated_ceiling, cfg.paddy_ceiling], np.float64)
+        return (tech, len(tech) > 1, bits, state.cells["tamed"].ravel(), wet, suit_wet, self.irrigable.ravel(),
+                self.dryness.ravel(), self.flood.ravel(), self.slope.ravel(), self.arable_eff.ravel(), consts)
 
     def _intensify(self, state):
         """Crowded farmland is worked harder; emptied or abandoned land lets it go."""
-        from worldgen.generator import shift
+        from .geo import shift
         cfg, dt = state.config, self.every
         intensity = state.cells["intensity"]
         cap = state.cells.get("capacity")
@@ -209,28 +446,17 @@ class Farming(System):
         if cap is None or mode is None:
             return
         pop = state.cells["population"]
-        farming = (mode == FARMING) & (pop > 0)
-        pressure = np.where(cap > 0, pop / np.maximum(cap, 1e-6), 0)
+        own = state.cells.get("state")
         # Farmers intensify once their land is filling up, and the more of them there are per
         # km2 the faster (Boserup: density drives it, and intensive land holds more people,
-        # so dense places run ahead while thin shifting-farming land stays as it is).
-        filling = np.clip((pressure - cfg.intensify_pressure) / 0.1 + 0.5, 0, 1)
-        density = pop / np.maximum(self.area, 1e-6)
-        push = filling * np.clip(density / cfg.intensify_density, 0, 3)
-        lead = np.zeros_like(intensity)
-        for dy, dx in DIRECTIONS4:
-            lead = np.maximum(lead, shift(intensity, dy, dx) - intensity)
-        speed = 1 + cfg.intensity_neighbour * np.clip(lead, 0, 1)
-        own = state.cells.get("state")
-        if own is not None:
-            speed = speed * np.where(own > 0, 1 + cfg.state_intensify, 1)
-        # Slow to start, then faster as methods, works and markets build on each other.
-        gain = dt / cfg.intensify_years * push * speed * (cfg.intensity_start + intensity)
-        grown = intensity + np.minimum(gain, 1) * (1 - intensity)
-        # Emptied land (people well below what it feeds) or land no longer farmed decays.
-        slack = np.where(farming, np.clip((0.5 - pressure) / 0.5, 0, 1), 1.0)
-        kept = 0.5 ** (dt / cfg.intensity_decay_years * slack)
-        intensity[:] = np.where(farming, grown, intensity) * kept
+        # so dense places run ahead while thin shifting-farming land stays as it is); faster
+        # next to more intensive land and inside a state; slow to start, then faster as
+        # methods, works and markets build on each other. Emptied land (people well below
+        # what it feeds) or land no longer farmed decays. (Compiled, cell by cell.)
+        _intensify_kernel(intensity, pop, cap, mode, self.area,
+                          own if own is not None else np.zeros(pop.shape, np.uint16), own is not None,
+                          FARMING, dt, cfg.intensify_pressure, cfg.intensify_density, cfg.intensity_neighbour,
+                          cfg.state_intensify, cfg.intensify_years, cfg.intensity_start, cfg.intensity_decay_years)
 
     def _present(self, tamed):
         bits = np.bitwise_or.reduce(tamed.ravel()) if tamed.size else 0
@@ -250,22 +476,20 @@ class Farming(System):
         self._intensify(state)
 
         # Crops improve over the centuries after taming.
-        for i in np.flatnonzero(self._present(tamed)):
-            here = (tamed & np.uint32(1 << i)) != 0
-            gain = 1 - np.exp(-dt / (cfg.crop_maturity_years * self.difficulty[i]))
-            maturity[i] = np.where(here, maturity[i] + (1 - maturity[i]) * gain, maturity[i])
+        gains = (1 - np.exp(-dt / (cfg.crop_maturity_years * self.difficulty))).astype(np.float32)
+        _mature_kernel(tamed.ravel(), maturity.reshape(self.n, -1), gains)
 
+        tamed_flat = tamed.ravel()
         # Domestication.
         holocene = np.clip((state.year - cfg.holocene_start_year) / 500, 0, 1)
         if state.climate is not None and state.climate.global_temperature_c < -1.5:
             holocene *= 0.1
         if holocene > 0:
             crowding = np.clip(pop / np.maximum(state.cells["forager_capacity"], 1e-6), 0, 1.5)
-            tamed_flat = tamed.ravel()
+            lived = np.flatnonzero(people)
             for i, sp in enumerate(SPECIES):
-                # Only cells where it can happen (worked out cell by cell; the random draw
-                # still covers the whole map, so runs stay the same as before).
-                cells = np.flatnonzero(self.can_tame[i] & people)
+                # Only cells where it can happen.
+                cells = lived[self.can_tame[i].ravel()[lived]]
                 cells = cells[(tamed_flat[cells] & np.uint32(1 << i)) == 0]
                 if not len(cells):
                     continue
@@ -274,10 +498,14 @@ class Farming(System):
                 hazard = (cfg.domestication_rate * self.scale ** 2 * holocene * self.suit[i].ravel()[cells]
                           * crowding.ravel()[cells] ** 3 / sp.difficulty ** 2 * (0.15 + sp.food)
                           * np.where(farms_anything.ravel()[cells], cfg.farmer_domestication_bonus, 1.0))
-                chance = 1 - np.exp(-hazard * dt)
-                hit = cells[rng.random(tamed.shape).ravel()[cells] < chance]
-                if len(hit):
-                    cell = int(rng.choice(hit))   # one origin per species per step
+                # One origin per species per step at most: whether any cell tames it (the
+                # chance that at least one does), and if so which (in proportion to each
+                # cell's chance). Two random numbers instead of one per cell.
+                total = float(hazard.sum()) * dt
+                if rng.random() < 1 - np.exp(-total):
+                    chance = 1 - np.exp(-hazard * dt)
+                    cell = int(cells[min(int(np.searchsorted(np.cumsum(chance), rng.random() * chance.sum())),
+                                         len(cells) - 1)])
                     self._domesticate(state, i, cell)
 
         # Canals water dry irrigable land where they are known (rechecked every 50 years).
@@ -285,39 +513,70 @@ class Farming(System):
             self._water_year = state.year
             self._apply_water(cfg, self.knows(state, "canals") if "tech" in state.cells else None)
         # Spread to neighbours (in several rounds on fine maps: see geo.rounds_for).
-        from worldgen.generator import shift
+        from .geo import shift
         forage = state.cells["forager_capacity"] / np.maximum(self.area, 1e-6)
         rounds = rounds_for(self.scale)
         pace = 1 / (self.scale * rounds)
+        # Every species' frontier and pioneer cells, in one pass over the map (a species'
+        # spread this step changes only its own cells, so these hold until its turn).
+        if getattr(self, "_nbr", None) is None:
+            self._nbr = neighbour_index(tamed.shape)
+        if getattr(self, "_suit_ok_of", None) is not self.suit:
+            self._suit_ok = np.ascontiguousarray((self.suit > 0.3).reshape(self.n, -1))
+            self._suit_ok_of = self.suit
+        f_start, f_cell, f_near, e_start, e_cell = _all_fronts(
+            tamed.ravel(), np.ascontiguousarray(people).ravel(), self._suit_ok, self.corridor.ravel(), self._nbr,
+            self.n)
         for i in np.flatnonzero(self._present(tamed)):
             here = (tamed & np.uint32(1 << i)) != 0          # where it was before this step
-            for _ in range(rounds):
-                self._spread(state, i, pace, forage, people, farms_anything, rng)
-            self._pioneers(state, i, here, people, forage, farms_anything, rng)
+            first = (f_cell[f_start[i]:f_start[i + 1]], f_near[f_start[i]:f_start[i + 1]])
+            for r in range(rounds):
+                self._spread(state, i, pace, forage, people, farms_anything, rng, first if r == 0 else None)
+            self._pioneers(state, i, here, people, forage, farms_anything, rng, e_cell[e_start[i]:e_start[i + 1]])
         self._stats(state)
 
-    def _spread(self, state, i, pace, forage, people, farms_anything, rng):
-        """One round of species i spreading to neighbouring cells."""
-        from worldgen.generator import shift
+    def _spread(self, state, i, pace, forage, people, farms_anything, rng, front=None):
+        """One round of species i spreading to neighbouring cells (worked out only on the
+        cells it could reach; the random draw still covers the whole map)."""
         cfg, dt = state.config, self.every
         tamed = state.cells["tamed"]
         maturity = state.cells["maturity"]
         here = (tamed & np.uint32(1 << i)) != 0
-        near = neighbour_count(here)
-        targets = ~here & (near > 0) & people & (self.suit[i] > 0.3)
-        if targets.any():
+        if getattr(self, "_nbr", None) is None:
+            self._nbr = neighbour_index(here.shape)
+        if front is not None:
+            t, near_t = front
+        else:
+            t, near_t = _frontier(tamed.ravel(), i, np.ascontiguousarray(people).ravel(), self.suit[i].ravel(),
+                                  self._nbr)
+        if len(t):
             # The variety the neighbours grow (newcomers get it slightly less adapted).
-            best = np.zeros_like(maturity[i])
-            for dy, dx in DIRECTIONS4:
-                best = np.maximum(best, shift(np.where(here, maturity[i], 0), dy, dx))
-            welcome = self._welcome(cfg, i, best, forage, farms_anything)
-            chance = 1 - np.exp(-cfg.spread_rate * pace * dt * (near / 4) * (0.5 + self.suit[i])
-                                * self.spread_ease * welcome)
-            take = targets & (rng.random(chance.shape) < chance)
-            if take.any():
-                tamed[take] |= np.uint32(1 << i)
-                maturity[i][take] = best[take] * 0.97
+            if getattr(self, "_nbr", None) is None:
+                self._nbr = neighbour_index(here.shape)
+            mat, held = maturity[i].ravel(), here.ravel()
+            best = np.zeros(len(t), maturity.dtype)
+            for k in range(4):
+                nb = self._nbr[k][t]
+                best = np.maximum(best, np.where(held[nb], mat[nb], 0))
+            welcome = self._welcome_at(cfg, i, t, best, forage, farms_anything)
+            chance = 1 - np.exp(-cfg.spread_rate * pace * dt * (near_t / 4) * (0.5 + self.suit[i].ravel()[t])
+                                * self.spread_ease.ravel()[t] * welcome)
+            take = t[draws_at(rng, here.size, t) < chance]
+            if len(take):
+                tamed.ravel()[take] |= np.uint32(1 << i)
+                mat[take] = best[rng_index(t, take)] * 0.97
                 self._first_landmass_events(state, i, take)
+
+    def _welcome_at(self, cfg, i, t, maturity, forage, farms_anything):
+        """`_welcome` for the flat cells `t` only."""
+        value = self.suit[i].ravel()[t] * maturity * self.food[i]
+        if self.is_crop[i]:
+            pot = cfg.farmer_density * value * self.arable.ravel()[t] * (1 + cfg.flood_yield * self.flood.ravel()[t])
+        else:
+            pot = cfg.herder_density * np.minimum(value, 2.0) * self.grazing.ravel()[t]
+        ratio = pot / np.maximum(forage.ravel()[t], 1e-6)
+        doubt = np.clip((ratio - 1) / (cfg.farming_advantage - 1), cfg.frontier_floor, 1)
+        return np.where(farms_anything.ravel()[t], 1.0, doubt).astype(np.float32)
 
     def _potential(self, cfg, i, maturity):
         """People per km2 species i could feed where grown at this maturity (alone)."""
@@ -334,13 +593,16 @@ class Farming(System):
         doubt = np.clip((ratio - 1) / (cfg.farming_advantage - 1), cfg.frontier_floor, 1)
         return np.where(farms_anything, 1.0, doubt).astype(np.float32)
 
-    def _pioneers(self, state, i, here, people, forage, farms_anything, rng):
+    def _pioneers(self, state, i, here, people, forage, farms_anything, rng, sources=None):
         """Pioneers settle good river or coast land 50-300 km beyond the front, then the
         gaps fill in (the Linear Pottery farmers along central Europe's rivers, Bantu
         farmers along African rivers)."""
         cfg = state.config
         h, w = here.shape
-        sources = np.flatnonzero(here & self.corridor & (neighbour_count(here) < 4))
+        if getattr(self, "_nbr", None) is None:
+            self._nbr = neighbour_index(here.shape)
+        if sources is None:
+            sources = _edge_cells(np.ascontiguousarray(here).ravel(), self.corridor.ravel(), self._nbr)
         if not len(sources):
             return
         jumps = min(int(rng.poisson(cfg.pioneer_rate * self.scale * self.every * len(sources))), 20)

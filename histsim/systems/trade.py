@@ -22,7 +22,7 @@ import numpy as np
 from numba import njit
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
-from worldgen.generator import shift
+from .geo import shift
 from worldgen.hydrology import cell_river_flow
 
 from ..core.simulation import System

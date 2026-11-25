@@ -8,7 +8,7 @@ A historical simulator built on worlds from the separate
 - **worldgen**: everything physical (terrain, climate, biomes, lakes, rivers).
 - **history-sim**: everything human (people, settlements, borders, crossings, ports, history).
 
-The simulator is written against **worldgen 1.5.1**: the world data it reads is listed
+The simulator is written against **worldgen 1.5.2**: the world data it reads is listed
 in worldgen's DATA.md, and `main.py` checks the data version when it starts.
 
 ## Setup
@@ -21,7 +21,7 @@ venv\Scripts\activate            (Windows)   or   source venv/bin/activate   (ma
 pip install -r requirements.txt
 ```
 
-This installs worldgen 1.5.1 straight from GitHub.
+This installs worldgen 1.5.2 straight from GitHub.
 
 ### Working on both projects at once
 

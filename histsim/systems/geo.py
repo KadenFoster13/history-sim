@@ -1,6 +1,7 @@
 """Map helpers shared by the systems: cell areas, neighbours, the coastline over time."""
 import numpy as np
-from worldgen.generator import distance_to, shift
+from numba import njit
+from worldgen.generator import distance_to, shift  # noqa: F401 (shift: used by the systems)
 
 DIRECTIONS4 = ((0, 1), (0, -1), (1, 0), (-1, 0))
 
@@ -49,9 +50,30 @@ def cells_for(cells, scale):
 
 
 def neighbour_count(mask):
-    """How many of each cell's 4 neighbours are in `mask` (wraps east-west)."""
-    m = mask.astype(np.int8)
-    return sum(shift(m, dy, dx) for dy, dx in DIRECTIONS4)
+    """How many of each cell's 4 neighbours are in `mask` (wraps east-west; at the poles a
+    cell stands in for its missing neighbour, as `shift` does)."""
+    return _neighbour_count(np.ascontiguousarray(mask, dtype=np.bool_))
+
+
+@njit(cache=True)
+def _neighbour_count(m):
+    h, w = m.shape
+    out = np.zeros((h, w), np.int8)
+    for y in range(h):
+        up = y - 1 if y > 0 else y
+        down = y + 1 if y < h - 1 else y
+        for x in range(w):
+            out[y, x] = (m[up, x] + m[down, x] + m[y, x - 1 if x > 0 else w - 1]
+                         + m[y, x + 1 if x < w - 1 else 0])
+    return out
+
+
+def neighbour_index(shape):
+    """For each cell (flat index), its 4 neighbours' flat indices, in DIRECTIONS4 order,
+    as `shift` sees them (wrapping east-west, a cell standing in for itself at the poles)."""
+    h, w = shape
+    index = np.arange(h * w).reshape(h, w)
+    return np.stack([shift(index, dy, dx).ravel() for dy, dx in DIRECTIONS4])
 
 
 def touches(mask):

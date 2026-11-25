@@ -24,11 +24,15 @@ Every `culture_check_years`:
 import colorsys
 
 import numpy as np
+from numba import njit, prange
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
-from worldgen.generator import distance_to, shift
+from worldgen.generator import distance_to
+
+from .geo import shift
 from worldgen.noise import Perlin3, fbm
 
+from ..core.rng import draws_at, hits
 from ..core.simulation import System
 from ..names import Language
 from .geo import (DIRECTIONS4, cell_scale, cells_for, rounds_for, ShelfSource, cell_area_km2, cell_graph, great_circle_km, land_now,
@@ -225,7 +229,7 @@ class Cultures(System):
         if converted.any():
             farmer_strength = np.where(mode >= HERDING, strength, 0)
             best_c, _, _ = _strongest_neighbour(cult, farmer_strength, converted)
-            take = converted & (best_c > 0) & (rng.random(cult.shape) < cfg.farmers_replace)
+            take = hits(rng, converted & (best_c > 0), cfg.farmers_replace)
             cult[take] = best_c[take]
         self._prev_mode = mode.copy()
 
@@ -234,12 +238,13 @@ class Cultures(System):
         rounds = rounds_for(self.scale)
         for _ in range(rounds):
             best_c, best_s, count = _strongest_neighbour(cult, strength, people, different=True)
-            ratio = best_s / np.maximum(strength, 1e-9)
-            pressure = cfg.assimilation_rate * np.clip(np.log(np.maximum(ratio, 1)), 0, 3)
-            pressure += cfg.cohesion_rate * (count >= 3)
-            pressure /= self.scale * rounds
-            chance = 1 - np.exp(-pressure * dt)
-            flip = people & (best_c > 0) & (rng.random(cult.shape) < chance)
+            # Pressure to give way: how much stronger the strongest neighbouring culture is,
+            # plus being surrounded by it (compiled, only where it can happen).
+            chance = np.zeros(cult.shape)
+            _assimilation_chance(best_c.ravel(), best_s.ravel(), strength.ravel(), count.ravel(),
+                                 people.ravel(), cfg.assimilation_rate, cfg.cohesion_rate,
+                                 self.scale * rounds, dt, chance.ravel())
+            flip = hits(rng, people & (best_c > 0), chance)
             cult[flip] = best_c[flip]
 
         if (state.year - getattr(self, "_last_check", -10 ** 9)) >= cfg.culture_check_years:
@@ -254,16 +259,17 @@ class Cultures(System):
         pop = state.cells["population"]
         mode = state.cells["subsistence"]
         prestige = np.array([0, cfg.forager_prestige, cfg.herder_prestige, cfg.farmer_prestige], np.float32)
-        s = pop / np.maximum(self.area, 1e-6) * prestige[mode]
         town = state.cells.get("settlement")
-        if town is not None:
-            s = s * (1 + np.log1p(town / 1000))
         polity = state.tables.get("polity")
         own = state.cells.get("state")
-        if polity is not None and own is not None and len(polity.ruler_culture) > int(own.max()):
-            rulers = state.cells["culture"] == polity.ruler_culture[own]
-            s = s * (1 + cfg.ruling_prestige * (rulers & (own > 0)))      # the rulers' culture
-        return s
+        ruled = polity is not None and own is not None and len(polity.ruler_culture) > int(own.max())
+        out = np.empty(pop.shape)
+        _strength_kernel(pop.ravel(), np.ascontiguousarray(mode).ravel(), self.area.ravel(), prestige,
+                         town.ravel() if town is not None else np.zeros(1, np.float32), town is not None,
+                         own.ravel() if ruled else np.zeros(1, np.uint16),
+                         polity.ruler_culture if ruled else np.zeros(1, np.int64), ruled,
+                         state.cells["culture"].ravel(), cfg.ruling_prestige, out.ravel())
+        return out
 
     # ---------------------------------------------------------------- splits
     def _splits(self, state):
@@ -388,20 +394,70 @@ class Cultures(System):
         })
 
 
+@njit(cache=True, parallel=True)
+def _strength_kernel(pop, mode, area, prestige, town, has_town, own, ruler_culture, ruled, culture,
+                     ruling_prestige, out):
+    """People per km2, raised for herders and farmers (organisation, prestige), for towns,
+    and for the rulers' own culture in their state."""
+    for i in prange(pop.shape[0]):
+        v = pop[i] / max(area[i], 1e-6) * prestige[mode[i]]
+        if has_town:
+            v *= 1 + np.log1p(town[i] / 1000)
+        if ruled and own[i] > 0 and culture[i] == ruler_culture[own[i]]:
+            v *= 1 + ruling_prestige
+        out[i] = v
+
+
+@njit(cache=True, parallel=True)
+def _assimilation_chance(best_c, best_s, strength, count, people, assimilation_rate, cohesion_rate, divide,
+                         dt, out):
+    for i in prange(best_c.shape[0]):
+        if not people[i] or best_c[i] == 0:
+            continue
+        ratio = best_s[i] / max(strength[i], 1e-9)
+        pressure = assimilation_rate * min(max(np.log(max(ratio, 1.0)), 0.0), 3.0)
+        if count[i] >= 3:
+            pressure += cohesion_rate
+        pressure /= divide
+        out[i] = 1 - np.exp(-pressure * dt)
+
+
 def _strongest_neighbour(cult, strength, where, different=False):
     """For each cell: the culture of its strongest neighbour (optionally only neighbours of
-    another culture), that neighbour's strength, and how many neighbours share that culture."""
+    another culture), that neighbour's strength, and how many neighbours share that culture.
+    (Compiled; the same results as comparing the four shifted maps in turn.)"""
+    from .geo import neighbour_index
+    key = cult.shape
+    if key not in _NEIGHBOURS:
+        _NEIGHBOURS[key] = np.ascontiguousarray(neighbour_index(cult.shape))
+    strength = np.ascontiguousarray(strength)
+    best_s = np.zeros(cult.shape, np.result_type(np.float32, strength.dtype))
     best_c = np.zeros_like(cult)
-    best_s = np.zeros(cult.shape, np.float32)
-    for dy, dx in DIRECTIONS4:
-        nc = shift(cult, dy, dx)
-        ns = shift(strength, dy, dx)
-        ok = where & (nc > 0) & (ns > best_s)
-        if different:
-            ok &= nc != cult
-        best_c = np.where(ok, nc, best_c)
-        best_s = np.where(ok, ns, best_s)
     count = np.zeros(cult.shape, np.int8)
-    for dy, dx in DIRECTIONS4:
-        count += (shift(cult, dy, dx) == best_c) & (best_c > 0)
+    _strongest_kernel(cult.ravel(), strength.ravel(), np.ascontiguousarray(where).ravel(), different,
+                      _NEIGHBOURS[key], best_c.ravel(), best_s.ravel(), count.ravel())
     return best_c, best_s, count
+
+
+_NEIGHBOURS = {}
+
+
+@njit(cache=True)
+def _strongest_kernel(cult, strength, where, different, nbr, best_c, best_s, count):
+    n = cult.shape[0]
+    for i in range(n):
+        if not where[i]:
+            continue
+        for k in range(4):
+            j = nbr[k, i]
+            nc = cult[j]
+            ns = strength[j]
+            if nc > 0 and ns > best_s[i] and (not different or nc != cult[i]):
+                best_c[i] = nc
+                best_s[i] = ns
+        if best_c[i] > 0:
+            c = 0
+            for k in range(4):
+                if cult[nbr[k, i]] == best_c[i]:
+                    c += 1
+            count[i] = c

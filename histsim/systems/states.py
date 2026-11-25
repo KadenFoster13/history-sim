@@ -42,12 +42,14 @@ Arms        a state fights with what its capital's people know: copper, bronze o
 import colorsys
 
 import numpy as np
+from numba import njit, prange
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
-from worldgen.generator import shift
+from .geo import shift
 from worldgen.hydrology import cell_river_flow
 
 from ..agents import Neighbour, Situation, StateAI
+from ..core.rng import draws_at, hits
 from ..core.simulation import System
 from .geo import (DIRECTIONS4, ShelfSource, cell_area_km2, cell_graph, cell_scale, cells_for, rounds_for,
                   great_circle_km, land_now)
@@ -58,6 +60,37 @@ TITLES = {"chiefdom": "Chiefdom of {}", "city-state": "City of {}", "kingdom": "
 DIRECTIONS8 = DIRECTIONS4 + ((1, 1), (1, -1), (-1, 1), (-1, -1))
 MAX_STATES = 65_000          # the state layer is uint16
 NOTABLE = 300_000            # people: wars and events involving states this big are chronicled
+
+
+@njit(cache=True)
+def _state_totals(own, pop, mode, tamed, horse, herding, herder_military, way, area, worth_density,
+                  people, cells, military, worth):
+    for i in range(own.shape[0]):
+        p = pop[i]
+        s = own[i]
+        people[s] += p
+        cells[s] += 1
+        m = 1.0
+        if horse >= 0 and mode[i] == herding and (tamed[i] >> np.uint32(horse)) & np.uint32(1):
+            m += herder_military
+        military[s] += p * m
+        if p > 0:
+            v = p * way[mode[i]] / max(area[i], 1e-6) / worth_density
+            worth[i] = min(max(v, 0.0), 1.0)
+
+
+@njit(cache=True, parallel=True)
+def _local_strength(own, dist, offset, reach, root_power, local):
+    for i in prange(own.shape[0]):
+        s = own[i]
+        if s == 0:
+            continue
+        d = dist[i]
+        if offset != 0:
+            d = max(d + offset, 0.0)
+        if not np.isfinite(d):
+            d = 1e9
+        local[i] = root_power[s] * np.exp(-d / reach[s])
 
 
 def empire_bar(cfg, world_people):
@@ -113,6 +146,7 @@ class States(System):
         self.pair_war = {}           # (a, b) with a < b -> war id
         self.truces = {}             # (a, b) -> year the truce ends
         self.alliances = {}          # (a, b) -> year the alliance ends
+        self._rec_version = 0          # bumped when a state changes kind or capital
         self.cohesion = np.zeros(1)
         self.aggression = np.zeros(1)
         self.drive = np.zeros(1)          # drive to expand (0..1): high in a young dynasty
@@ -136,42 +170,62 @@ class States(System):
         mode = state.cells["subsistence"]
         n = len(state.tables["states"])
         flat = own.ravel()
-        self.people = np.bincount(flat, weights=pop.ravel(), minlength=n)
-        self.cell_count = np.bincount(flat, minlength=n)
         knows = self._knows(state, n)
         self.knows = knows
-        military = pop * (1 + cfg.herder_military * ((mode == HERDING) & self._horses(state)))
+        # People, cells and fighting strength per state, and what each cell is worth to a
+        # state (the people it can tax: farmers fully, herders and foragers hardly, per km2),
+        # in one pass over the map (compiled).
+        farming = state.tables.get("farming")
+        tamed = state.cells.get("tamed")
+        horse = self.horse if (farming is not None and self.horse is not None and tamed is not None) else -1
+        self.people = np.zeros(n)
+        self.cell_count = np.zeros(n, np.int64)
+        military_sum = np.zeros(n)
+        worth = np.zeros(own.size, np.float32)
+        way = np.array([0, cfg.worth_foragers, cfg.worth_herders, 1.0], np.float32)
+        _state_totals(flat, pop.ravel(), mode.ravel(), tamed.ravel() if tamed is not None else np.zeros(1, np.uint32),
+                      horse, HERDING, cfg.herder_military, way, self.area.ravel(), cfg.worth_density,
+                      self.people, self.cell_count, military_sum, worth)
         # Weapons and armies: the best metal its core works, chariots, professional soldiers.
         arms = 1 + np.maximum.reduce([cfg.copper_war * knows["copper"], cfg.bronze_war * knows["bronze"],
                                       cfg.iron_war * knows["iron"]]) \
             + cfg.chariot_war * knows["chariot"] + cfg.armies_war * knows["armies"]
-        self.military = np.bincount(flat, weights=military.ravel(), minlength=n) * arms
+        self.military = military_sum * arms
         self.power = self.military * self.cohesion[:n]
         self.reach = cfg.reach_km * (1 + cfg.reach_growth * np.log10(1 + self.people / 1e5))
         # The technology of rule carries a state's grip further.
         self.reach *= (1 + cfg.writing_reach * knows["writing"] + cfg.roads_reach * knows["roads"]
                        + cfg.riding_reach * knows["riding"] + cfg.bureaucracy_reach * knows["bureaucracy"])
-        chief = np.array([r is not None and r["kind"] == "chiefdom" for r in self.records[:n]])
+        chief = self._lookups(n)[1]
         self.chief = chief
         self.reach[:len(chief)][chief] *= cfg.chiefdom_reach         # chiefs rule only nearby
-        # What each cell is worth to a state: the people it can tax (farmers fully, herders
-        # and foragers hardly), per km2.
-        way = np.array([0, cfg.worth_foragers, cfg.worth_herders, 1.0], np.float32)[mode]
-        self.worth = np.clip(pop * way / np.maximum(self.area, 1e-6) / cfg.worth_density, 0, 1).astype(np.float32)
-        dist = state.cells["state_distance"]
-        if self.scale != 1:
-            # Measured to cell centres, which lie half a cell inside a border: on coarse maps
-            # 50 km in, on the 800-px map 25 km. Strength along a border is as on that map.
-            dist = np.maximum(dist + 25.0 * (self.scale - 1), 0)
-        decay = np.exp(-np.where(np.isfinite(dist), dist, 1e9) / self.reach[own])
-        self.local = np.where(own > 0, np.sqrt(self.power[own]) * decay, 0).astype(np.float32)
+        self.worth = worth.reshape(own.shape)
+        # Each cell's local strength: its state's power, fading with travel distance from the
+        # capital. (Distances are measured to cell centres, half a cell inside a border: on
+        # coarse maps 50 km in, on the 800-px map 25 km; strength along a border is kept as
+        # on that map.)
+        local = np.zeros(own.size, np.float32)
+        _local_strength(flat, state.cells["state_distance"].ravel(), 25.0 * (self.scale - 1), self.reach,
+                        np.sqrt(self.power), local)
+        self.local = local.reshape(own.shape)
 
     def _refresh_new(self, state):
         """Per-state lookups for states founded since the last summary."""
         n = len(self.records)
         if len(self.chief) < n:
             self.knows = self._knows(state, n)
-            self.chief = np.array([r is not None and r["kind"] == "chiefdom" for r in self.records[:n]])
+            self.chief = self._lookups(n)[1]
+
+    def _lookups(self, n):
+        """Capitals and which states are chiefdoms, by state id (rebuilt only when a state is
+        founded, changes kind or moves its capital)."""
+        key = (n, self._rec_version)
+        if getattr(self, "_lookup_key", None) != key:
+            recs = self.records[:n]
+            self._caps = np.array([r["capital"] if r is not None else 0 for r in recs], np.int64)
+            self._chief = np.array([r is not None and r["kind"] == "chiefdom" for r in recs], bool)
+            self._lookup_key = key
+        return self._caps, self._chief
 
     def _knows(self, state, n):
         """For each technology of rule and war, which states know it (what their capital's
@@ -182,7 +236,7 @@ class States(System):
                 "bureaucracy", "law", "monuments", "walls", "siegecraft")
         if tech is None or n == 0:
             return {k: np.zeros(n, np.float32) for k in keys}
-        caps = np.array([r["capital"] if r is not None else 0 for r in self.records[:n]], np.int64)
+        caps = self._lookups(n)[0]
         known = tech.ravel()[caps]
         return {k: ((known >> np.uint64(INDEX[k])) & np.uint64(1)).astype(np.float32) for k in keys}
 
@@ -317,7 +371,7 @@ class States(System):
             if towns.any():
                 chance = 1 - np.exp(-cfg.state_formation_rate * dt * np.clip(size / 5000, 0.5, 3)
                                     * (1 + cfg.circumscription_states * circ))
-                for cell in np.flatnonzero(towns & (rng.random(own.shape) < chance)):
+                for cell in np.flatnonzero(hits(rng, towns, chance)):
                     if own.flat[cell] == 0:
                         # a chiefdom starts as its seat and the land just around it
                         self._found(state, int(cell), radius=int(cfg.chiefdom_seed_cells / self.scale))
@@ -327,7 +381,7 @@ class States(System):
         dense = (mode == FARMING) & (own == 0) & old_farming & (density >= cfg.chief_density)
         if dense.any():
             chance = 1 - np.exp(-cfg.chief_rate * self.scale ** 2 * dt)
-            for cell in np.flatnonzero(dense & (rng.random(own.shape) < chance)):
+            for cell in np.flatnonzero(hits(rng, dense, chance)):
                 if own.flat[cell] == 0:
                     self._found(state, int(cell), radius=int(cfg.chiefdom_seed_cells / self.scale))
         herders = (mode == HERDING) & (own == 0) & (density >= cfg.herder_state_density) & self._horses(state)
@@ -454,7 +508,7 @@ class States(System):
         counts = self.cell_count[np.minimum(best_owner, len(self.cell_count) - 1)]
         compact = np.where(counts <= cells_for(4, self.scale), np.maximum(compact, 0.5), compact)
         chance = 1 - np.exp(-cfg.absorb_rate / (self.scale * rounds) * dt * np.clip(ratio - 1, 0, 1) * way * compact)
-        take = free & (best_owner > 0) & (self.rng.random(own.shape) < chance)
+        take = hits(self.rng, free & (best_owner > 0), chance)
         if take.any():
             own[take] = best_owner[take]
             self._gain(best_owner[take])
@@ -523,7 +577,7 @@ class States(System):
             better = at_war & (p > best_p)
             best_p = np.where(better, p, best_p)
             best_owner = np.where(better, attacker, best_owner)
-        flip = (best_owner > 0) & (self.rng.random(own.shape) < best_p)
+        flip = hits(self.rng, best_owner > 0, best_p)
         if not flip.any():
             return
         cells = np.flatnonzero(flip)
@@ -585,6 +639,7 @@ class States(System):
         old = lose["capital_name"]
         cell = self._best_capital(state, loser)
         lose["capital"] = cell
+        self._rec_version += 1
         lose["capital_name"] = self._place_name(state, cell) or lose["capital_name"]
         self.cohesion[loser] = max(0.02, self.cohesion[loser] - 0.15)
         self._distances(state, only=loser)
@@ -862,6 +917,7 @@ class States(System):
         if rec["kind"] == "empire" and kind != "empire":
             rec["empire_to"] = state.year
         rec["kind"] = kind
+        self._rec_version += 1
         rec["title"] = TITLES[kind].format(rec["name"])
         rec.setdefault("kinds", []).append([state.year, kind])
         if kind == "kingdom" and not self._first_kingdom:
@@ -912,7 +968,7 @@ class States(System):
             first = same & (surround == 0)
             surround = np.where(first, nb, surround)
             count += same & (nb == surround)
-        enclave = (own > 0) & (count >= 3) & (self.rng.random(own.shape) < cfg.enclave_absorb)
+        enclave = hits(self.rng, (own > 0) & (count >= 3), cfg.enclave_absorb)
         capitals = np.zeros(own.shape, bool)
         for sid in self.alive_ids():
             capitals.flat[records[sid]["capital"]] = True
@@ -960,7 +1016,7 @@ class States(System):
         for sid in self.alive_ids():
             capitals.flat[records[sid]["capital"]] = True
         hazard = cfg.admin_years / cfg.fallback_years * np.clip(beyond, 0, 2) * weak
-        drop = (own > 0) & poor & ~capitals & (self.rng.random(own.shape) < 1 - np.exp(-hazard))
+        drop = hits(self.rng, (own > 0) & poor & ~capitals, 1 - np.exp(-hazard))
         if drop.any():
             own[drop] = 0
 
@@ -1015,6 +1071,7 @@ class States(System):
                     rec = records[new]
                     rec["kind"], rec["title"] = "kingdom", TITLES["kingdom"].format(rec["name"])
                     rec["kinds"] = [[state.year, "kingdom"]]
+                    self._rec_version += 1
                 pair = (min(sid, new), max(sid, new))
                 self.truces[pair] = state.year + int(self.rng.integers(*cfg.truce_years))
                 born.append(new)
@@ -1081,6 +1138,7 @@ class States(System):
                 rec = records[new]
                 rec["kind"], rec["title"] = "kingdom", TITLES["kingdom"].format(rec["name"])
                 rec["kinds"] = [[state.year, "kingdom"]]
+                self._rec_version += 1
             pair = (min(sid, new), max(sid, new))
             self.truces[pair] = state.year + int(self.rng.integers(*cfg.truce_years))
             if self._notable(sid, sid) or pop[cells].sum() >= max(NOTABLE, self._world_people * self._notable_share) / 3:

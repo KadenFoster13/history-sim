@@ -12,8 +12,11 @@ ice-age world. After that, every step:
 import heapq
 
 import numpy as np
+from numba import njit, prange
 from worldgen import BIOME_ID
-from worldgen.generator import distance_to, shift
+from worldgen.generator import distance_to
+
+from .geo import shift
 from worldgen.hydrology import cell_river_flow
 
 from ..core.simulation import System
@@ -122,7 +125,7 @@ class Population(System):
         else:
             cap, mode = forage, np.where(forage > 0, FORAGING, 0)
         own = state.cells.get("state")
-        if own is not None:    # order, storage and public works: states' farmland feeds more
+        if own is not None and cfg.state_food_bonus:    # states' farmland feeds more (off by default)
             cap = np.where((own > 0) & (mode == FARMING), cap * (1 + cfg.state_food_bonus), cap).astype(np.float32)
         town = state.cells.get("settlement")
         if town is not None:   # townspeople are fed by their hinterland
@@ -154,14 +157,9 @@ class Population(System):
                             people=round(drowned))
                 self._last_drowning_event = state.year
 
-        # Growth toward capacity, and famine where people exceed it.
-        growth = np.where(mode >= HERDING, cfg.farmer_growth, cfg.forager_growth)
-        room = np.where(cap > 0, 1 - pop / np.maximum(cap, 1e-6), 0)
-        over = pop > cap
-        before = pop.copy()
-        pop[:] = np.where(over, cap + (pop - cap) * 0.5 ** (dt / cfg.famine_halving_years),
-                          pop * np.exp(growth * dt * np.clip(room, 0, 1)))
-        famine = float((before - pop)[over].sum())
+        # Growth toward capacity, and famine where people exceed it (compiled, cell by cell).
+        famine = _grow(pop, cap, mode, dt, cfg.farmer_growth, cfg.forager_growth,
+                       0.5 ** (dt / cfg.famine_halving_years), HERDING)
 
         # Movement: people drift from crowded cells toward roomier neighbours.
         # Each flow is worked out once per pair of neighbours (east and south) and applied
@@ -169,20 +167,7 @@ class Population(System):
         # rounds of it to move people as far (diffusion: rounds ~ 1 / cell size squared).
         total = min(0.24, cfg.migration_rate * dt) / self.scale ** 2
         rounds = int(np.ceil(total / 0.24 - 1e-9))
-        rate = total / rounds
-        for _ in range(rounds):
-            pressure = np.where(cap > 0, pop / np.maximum(cap, 1e-6), 0)
-            change = np.zeros_like(pop)
-            for dy, dx in ((0, 1), (1, 0)):
-                nb_pop = shift(pop, dy, dx)
-                flow = rate * (pressure - shift(pressure, dy, dx)) * np.minimum(cap, shift(cap, dy, dx)) / 4
-                flow = np.clip(flow, -nb_pop / 4, pop / 4)
-                if dy == 1:
-                    flow[-1] = 0          # the bottom row has no neighbour below
-                change -= flow
-                change += shift(flow, -dy, -dx) if dx else np.vstack([np.zeros_like(flow[:1]), flow[:-1]])
-            pop += change
-            np.maximum(pop, 0, out=pop)
+        _migrate(pop, cap, total / rounds, rounds)
         pop[pop < 1] = 0   # nobody left
         state.cells["subsistence"] = np.where(pop > 0, mode, 0).astype(np.uint8)
         self._stats(state, famine=famine, drowned=drowned)
@@ -212,6 +197,81 @@ def _climate_now(state):
 
 
 # ---------------------------------------------------------------- peopling
+@njit(cache=True, parallel=True)
+def _grow_kernel(pop, cap, mode, dt, farmer_growth, forager_growth, famine_kept, herding, famine):
+    """Growth toward capacity (faster for herders and farmers), and famine where people
+    exceed what the land feeds (the excess halves every `famine_halving_years`); the deaths
+    per cell go to `famine`."""
+    h, w = pop.shape
+    for y in prange(h):
+        for x in range(w):
+            p, c = pop[y, x], cap[y, x]
+            famine[y, x] = 0.0
+            if p > c:
+                new = c + (p - c) * famine_kept
+                famine[y, x] = p - new
+                pop[y, x] = new
+            elif p > 0:
+                room = 1 - p / max(c, 1e-6) if c > 0 else 0.0
+                room = min(max(room, 0.0), 1.0)
+                g = farmer_growth if mode[y, x] >= herding else forager_growth
+                pop[y, x] = p * np.exp(g * dt * room)
+
+
+def _grow(pop, cap, mode, dt, farmer_growth, forager_growth, famine_kept, herding):
+    famine = np.empty(pop.shape)
+    _grow_kernel(pop, cap, mode, dt, farmer_growth, forager_growth, famine_kept, herding, famine)
+    return float(famine.sum())
+
+
+@njit(cache=True, inline="always")
+def _flow(rate, pressure, cap, pop, y, x, y2, x2):
+    """People moving from (y, x) to its neighbour (y2, x2) in one round (negative: the other
+    way), at most a quarter of either cell's people."""
+    f = rate * (pressure[y, x] - pressure[y2, x2]) * min(cap[y, x], cap[y2, x2]) / 4
+    return min(max(f, -pop[y2, x2] / 4), pop[y, x] / 4)
+
+
+@njit(cache=True, parallel=True)
+def _migrate_round(pop, cap, rate, pressure, new):
+    h, w = pop.shape
+    for yy in prange(h):
+        y = np.int64(yy)
+        for x in range(w):
+            xe = x + 1 if x < w - 1 else 0
+            xw = x - 1 if x > 0 else w - 1
+            change = -_flow(rate, pressure, cap, pop, y, x, y, xe)      # to the east
+            change += _flow(rate, pressure, cap, pop, y, xw, y, x)      # from the west
+            if y < h - 1:
+                change -= _flow(rate, pressure, cap, pop, y, x, y + 1, x)   # to the south
+            if y > 0:
+                change += _flow(rate, pressure, cap, pop, y - 1, x, y, x)   # from the north
+            v = pop[y, x] + change
+            new[y, x] = v if v > 0 else 0.0
+
+
+@njit(cache=True, parallel=True)
+def _pressure(pop, cap, out):
+    h, w = pop.shape
+    for y in prange(h):
+        for x in range(w):
+            c = cap[y, x]
+            out[y, x] = pop[y, x] / max(c, 1e-6) if c > 0 else 0.0
+
+
+def _migrate(pop, cap, rate, rounds):
+    """People drift from crowded cells toward roomier neighbours: each round, a flow
+    between every pair of east-west neighbours (wrapping) and north-south neighbours,
+    worked out from the round's starting numbers; each cell adds up its own four flows, so
+    nobody is created or lost (and cells can be worked out in parallel)."""
+    pressure = np.empty(pop.shape)
+    new = np.empty(pop.shape, pop.dtype)
+    for _ in range(rounds):
+        _pressure(pop, cap, pressure)
+        _migrate_round(pop, cap, rate, pressure, new)
+        pop[:] = new
+
+
 def _arrival_from_finer_map(world, cfg, rng, voyages):
     """On a coarse map, people the world on the reference-width map of the same world and
     carry the arrival years over (the earliest in each coarse cell). Small islands, the

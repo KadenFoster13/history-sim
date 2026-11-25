@@ -19,7 +19,8 @@ Each invention is recorded (the `inventions` table) and named in the inventors' 
 language. Step 1 adds no effects: states, farming and war don't use technology yet.
 """
 import numpy as np
-from worldgen.generator import shift
+from numba import njit, prange
+from .geo import shift
 from worldgen.hydrology import cell_river_flow
 
 from ..core.simulation import System
@@ -128,13 +129,14 @@ class Technology(System):
     def _allowed(self, needs, known, bits):
         """Bit mask per cell of the technologies whose needs (`bits`: need_bits, find_bits or
         keep_bits) and prerequisites are met."""
-        ok = np.full(len(known), ALL)
-        for name, met in needs.items():
-            b = bits[name]
-            if b:
-                ok &= np.where(met, ALL, ~b)
-        for b, pre in self.prereq:
-            ok &= np.where((known & pre) == pre, ALL, ~b)
+        names = [n for n in needs if bits[n]]
+        met = np.stack([np.asarray(needs[n], bool) for n in names]) if names else np.zeros((0, len(known)), bool)
+        masks = np.array([bits[n] for n in names], np.uint64)
+        if not hasattr(self, "_pre_bits"):
+            self._pre_bits = np.array([b for b, _ in self.prereq], np.uint64)
+            self._pre_need = np.array([p for _, p in self.prereq], np.uint64)
+        ok = np.empty(len(known), np.uint64)
+        _allowed_kernel(met, masks, self._pre_bits, self._pre_need, np.ascontiguousarray(known), ok)
         return ok
 
     # ----------------------------------------------------------------- step
@@ -272,6 +274,21 @@ class Technology(System):
         stats["technologies_most"] = int(count.max()) if len(count) else 0
         stats["technologies_mean"] = float((count * people).sum()) / total
         state.stats.update(stats)
+
+
+@njit(cache=True, parallel=True)
+def _allowed_kernel(met, masks, pre_bits, pre_need, known, ok):
+    full = ~np.uint64(0)
+    for c in prange(known.shape[0]):
+        v = full
+        for k in range(masks.shape[0]):
+            if not met[k, c]:
+                v &= ~masks[k]
+        kn = known[c]
+        for k in range(pre_bits.shape[0]):
+            if (kn & pre_need[k]) != pre_need[k]:
+                v &= ~pre_bits[k]
+        ok[c] = v
 
 
 def tech_names(mask):

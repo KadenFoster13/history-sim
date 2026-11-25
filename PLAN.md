@@ -168,6 +168,55 @@ benchmark below), then for the game:
 - **After phase 4 (O1, main pass):** land-only cells and neighbour indices, float32,
   numba kernels for the hot systems, incremental state summaries; aim for the 100
   years/s target.
+  **Part 1 done 2026-11-24 (histsim 0.7.3, worldgen 1.5.2):** only changes that give
+  exactly the same history (world 31 seed 1 to 1 CE: same fingerprint, 4c4d4b5bf7db3cd1):
+  the spread of crops and animals, crop maturing, domestication and food per cell worked
+  out only on the cells involved (the random draws still cover the map); neighbour counts
+  and the cultures' strongest-neighbour search compiled (numba); state summaries over
+  states' own cells, with capitals and kinds kept in lookups rebuilt only when they
+  change; drought fields cached in worldgen's climate history. 800 px to 1 CE: 320 s ->
+  221 s (31 -> 45 years/s; 49 -> ~70 years/s early, 23 -> 34 by 1 CE). Time now: farming
+  27%, population 20%, states 17%, settlements 14%, cultures 10%, technology 7%,
+  environment 5%. A compiled `shift` was slower than numpy's and was dropped.
+  Found on the way: a world freshly generated gave a slightly different history from the
+  same world loaded from the cache (the cache keeps some fields at lower precision);
+  worldgen 1.5.2's `load_or_generate` now returns the saved copy, so it no longer matters.
+  **Part 2, first round done 2026-11-24 (histsim 0.7.4):**
+  - exact: random numbers drawn only where they are used (the stream is skipped over the
+    rest with the generator's `advance`, keeping its half-used 32-bit draw; same numbers);
+  - compiled (numba), the same rules cell by cell: farming capacity and the
+    intensification ceiling (one shared cell function), population growth and famine,
+    migration, intensification, and the settlements' neighbourhood sums and maxima.
+  These change floating-point details only: on worlds 31 and 22 (800 px, seeds 1-3, to
+  1 CE) every event is the same as in 0.7.2 and no statistic differs by more than 0.12%.
+  800 px to 1 CE: 221 s -> 176 s (45 -> 57 years/s; from 320 s at the start of O1).
+  Time now: farming 22%, states 20%, population 15%, settlements 15%, cultures 12%,
+  technology 9%, environment 7%.
+  **Second round done 2026-11-24 (histsim 0.7.5):** compiled the states' per-state
+  totals, cell worth and local strength (one pass over the map), farming's food per cell,
+  crop maturing, frontier and pioneer cells (no per-species map scans), the settlements'
+  feeding limits and ladder of towns, the cultures' strength and assimilation chance, and
+  the technology needs check; capitals find their state's cells with one sort; worldgen's
+  climate sums its regional patterns in one weighted pass. Again every event is the same as
+  in 0.7.2 on worlds 31 and 22, seeds 1-3 at 800 px. 800 px to 1 CE: 176 s -> 135 s
+  (74 years/s; ~100 years/s early on, ~51 by 1 CE). Time now: farming 23%, states 18%,
+  settlements 18%, population 15%, cultures 11%, technology 9%, environment 4%.
+  **Third round 2026-11-24 (histsim 0.7.6):** per-cell kernels run on all cores (numba
+  `prange`; OpenMP threads set to sleep when idle, or they slow the numpy work between
+  kernels); migration rewritten so each cell adds up its own four flows (parallel, and
+  still the same numbers); every species' frontier and pioneer cells found in one pass;
+  random-number skipping draws through short gaps. All of that kept the history
+  identical. One change on purpose does not: domestication now decides with two random
+  numbers per species (does any cell tame it this step, from the combined chance; which,
+  in proportion to each cell's chance) instead of one per candidate cell. The odds are
+  the same; checked on worlds 31 and 22, seeds 1-3 (800 px, 1 CE), everything stays
+  within the seed spread of 0.7.2 (population ~215M against ~204M, people in states
+  ~57% against ~54%, cities of 100,000+ 26 against 25, writing and bronze within a
+  few centuries). Speed: the same history as 0.7.5 ran in 124 s (81 years/s); with the
+  new domestication the six-run batch takes ~5% less time than before, and single runs
+  vary with their history (world 31 seed 1: 134 s with 513 states at 1 CE; world 22
+  seed 1: 153 s). The states system now takes the most time where there are many states
+  (python loops over states in admin, decisions, capitals): the next target.
 - **After phase 6 (O2):** re-profile with religions, disease and nomads; fix what grew.
 - **Before phase 9 (O3, game pass):** simulation and viewer separated, rendering, start
   time, memory and save size, the compiled-core decision; then the 20 years/s floor is
@@ -1099,6 +1148,10 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | O1 part 2, third round (histsim 0.7.6): kernels on all cores, parallel migration, all species' frontiers in one pass (all exact); domestication drawn with two random numbers per species instead of one per cell (same odds; six runs within the seed spread of 0.7.2). ~75-81 years/s at 800 px depending on the history; the states system is next |
+| 2026-11-24 | O1 part 2, second round (histsim 0.7.5): states' totals, farming per-species work, settlements, cultures and technology needs compiled; climate patterns summed in one pass (worldgen 1.5.2); events identical to 0.7.2 on six runs. 800 px to 1 CE 176 s -> 135 s (74 years/s; 320 s before O1) |
+| 2026-11-24 | O1 part 2, first round (histsim 0.7.4): random numbers drawn only where used (exact), and farming capacity, growth, migration, intensification and box sums compiled; events identical to 0.7.2 on six runs, stats within 0.12%. 800 px to 1 CE 221 s -> 176 s (57 years/s) |
+| 2026-11-24 | O1 part 1 (histsim 0.7.3, worldgen 1.5.2): speed changes that keep the history exactly the same; 800 px to 1 CE 320 s -> 221 s (45 years/s). Part 2 (land-only arrays, compiled growth and migration) will change float details, so it is checked against seed spread |
 | 2026-11-24 | histsim 0.7.2: on coarser maps the peopling pre-pass runs on the 800 px map of the same world (small stepping-stone islands survive), fixing world 22's slow peopling at 400 px; 400 px runs now ~145M at 1 CE against ~204M at 800 px (was ~112M); the rest is slower farming spread on coarse cells, left for later |
 | 2026-11-24 | Phase 4 done (histsim 0.7.1, step 5 calibration): technologies take a least time to mature once a place could find them (later technologies of rule now follow writing over centuries), iron needs copper smiths, big states hold longer (overextension from 20M, collapse below 0.10). 800 px averages near Earth for first dates, cities and trade; largest state at 1 CE still ~5.5% and states hold steady a third of the time (phases 5-6). 400 px runs come out about half as populous and later (a gap since phase 3-4, to investigate) |
 | 2026-11-24 | Phase 4 step 4 built (histsim 0.7.0): trade routes between towns over land, rivers and coasts (gravity flows along the cheapest chains of links), copper, tin and gold or silver carried up to 1,500 (km x cost), knowledge carried along routes, busy places grow and are fed more; Trade map mode. 800 px: goods travel 3,200-4,700 km by 1 CE, bronze known by 21-71% of people, largest state ~8% and largest city ~330k at 1 CE; early cities too big again (~130k at 3000 BCE) through early technology of rule (step 5); runs ~15% longer. Added REFERENCES.md |

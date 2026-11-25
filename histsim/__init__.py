@@ -7,7 +7,14 @@
     sim.run(until=12_000)
     recorder.close()
 """
-__version__ = "0.7.2"
+__version__ = "0.7.6"
+
+import os as _os
+
+# The compiled per-cell kernels run on several cores (numba, OpenMP). Idle OpenMP threads
+# would otherwise spin between kernels and slow down the numpy work in between.
+_os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
+_os.environ.setdefault("KMP_BLOCKTIME", "0")
 
 from .core import Simulation, System, label, real_label, real_year, sim_year
 from .record import RunReader, RunRecorder

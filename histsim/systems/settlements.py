@@ -28,8 +28,11 @@ living there); 10,000 or more is a city. The `settlement` layer is the size of t
 largest place in each cell, and `settlement_id` which named place it is.
 """
 import numpy as np
+from numba import njit, prange
 from worldgen import BIOME_ID
-from worldgen.generator import shift, smoothstep
+from worldgen.generator import smoothstep
+
+from .geo import shift
 from worldgen.hydrology import cell_river_flow
 from worldgen.noise import Perlin3, fbm
 
@@ -142,33 +145,34 @@ class Settlements(System):
         """The most people a place can be fed (per cell): by what its people know of moving
         food and governing (canals, sailing, roads, writing, officials, coinage), and more
         on a river or coast."""
+        from ..tech import INDEX
         cfg = state.config
-        limit = cfg.feed_base * (1 + cfg.feed_water * self.water)
         tech = state.cells.get("tech")
-        if tech is not None:
-            from ..tech import bit
-            for key, extra in (("canals", cfg.feed_canals), ("sailing", cfg.feed_sailing),
-                               ("roads", cfg.feed_roads), ("writing", cfg.feed_writing),
-                               ("bureaucracy", cfg.feed_bureaucracy), ("coinage", cfg.feed_coinage)):
-                limit = limit * (1 + extra * ((tech & np.uint64(bit(key))) != 0))
+        keys = ("canals", "sailing", "roads", "writing", "bureaucracy", "coinage")
+        bits = np.array([INDEX[k] for k in keys], np.int64)
+        extra = np.array([cfg.feed_canals, cfg.feed_sailing, cfg.feed_roads, cfg.feed_writing,
+                          cfg.feed_bureaucracy, cfg.feed_coinage])
         trade = state.tables.get("trade")
-        if trade is not None:                   # grain brought by trade (Rome's from Egypt)
-            limit = limit * (1 + cfg.feed_trade * trade.busy(state))
-        return limit.astype(np.float32)
+        traded = state.cells["trade"].ravel() if trade is not None else np.zeros(1, np.float32)
+        limit = np.empty(self.water.size, np.float32)
+        _feed_kernel(self.water.ravel(), tech.ravel() if tech is not None else np.zeros(1, np.uint64),
+                     tech is not None, bits, extra, traded, trade is not None, cfg.trade_half, cfg.feed_base,
+                     cfg.feed_water, cfg.feed_trade, limit)
+        return limit.reshape(self.water.shape)
 
     def _small_towns(self, state, share, farm_pop, limit):
         """The towns below each region's main place: a rank-size ladder (Pareto, exponent 1)
         from `town_min` up to half what a place can be fed, holding the region's townspeople
         not in its main place. Counted per cell."""
         cfg = state.config
-        people = (1 - cfg.central_place_share) * share * farm_pop      # townspeople not in the main place
-        lo = cfg.town_min
-        hi = np.maximum(0.5 * limit, 2 * lo)
-        mean = lo * hi * np.log(hi / lo) / (hi - lo)                    # mean size of a Pareto(1) town
-        count = people / mean
+        hi = np.empty(limit.shape)
+        people = np.empty(limit.size)
+        _small_town_kernel(
+            np.ascontiguousarray(share, np.float64).ravel(), np.ascontiguousarray(farm_pop, np.float64).ravel(),
+            limit.ravel(), 1 - cfg.central_place_share, cfg.town_min, state.cells["small_towns"].ravel(), hi.ravel(),
+            people)
+        self._small_people = float(people.sum())
         self._small_hi = hi
-        state.cells["small_towns"][:] = np.where(count >= 0.05, count, 0)
-        self._small_people = float((count * mean).sum())
 
     def _capitals(self, state, target, dt, limit=None):
         """Capitals draw people, trade and tribute from their whole state: they grow far
@@ -182,6 +186,10 @@ class Settlements(System):
         own = state.cells["state"]
         records = state.tables["states"]
         flat_pop = pop.ravel()
+        # Each state's cells, in map order, found with one sort instead of a scan per state.
+        flat_own = own.ravel()
+        order = np.argsort(flat_own, kind="stable")
+        bounds = np.searchsorted(flat_own[order], np.arange(len(records) + 1))
         for sid in polity.alive_ids():
             if sid >= len(polity.people) or polity.people[sid] < 50_000:
                 continue
@@ -195,7 +203,7 @@ class Settlements(System):
             want = target.flat[cap] / 0.9 - flat_pop[cap]
             if want <= 0:
                 continue
-            others = np.flatnonzero((own.ravel() == sid))
+            others = order[bounds[sid]:bounds[sid + 1]]
             others = others[others != cap]
             pool = flat_pop[others].sum()
             if pool <= 0:
@@ -320,15 +328,110 @@ class Settlements(System):
         })
 
 
+@njit(cache=True, parallel=True)
+def _feed_kernel(water, tech, has_tech, bits, extra, traded, has_trade, trade_half, base, feed_water,
+                 feed_trade, out):
+    one = np.uint64(1)
+    for i in prange(water.shape[0]):
+        v = base * (1 + feed_water * water[i])
+        if has_tech:
+            t = tech[i]
+            for k in range(bits.shape[0]):
+                if (t >> np.uint64(bits[k])) & one:
+                    v *= 1 + extra[k]
+        if has_trade:
+            tr = traded[i]
+            v *= 1 + feed_trade * tr / (tr + trade_half)
+        out[i] = v
+
+
+@njit(cache=True, parallel=True)
+def _small_town_kernel(share, farm_pop, limit, outside, lo, count_out, hi_out, people_out):
+    """Townspeople outside each area's main place, in a rank-size (Pareto 1) ladder of towns
+    from `lo` to half what a place can be fed: how many towns per cell (and their people)."""
+    for i in prange(share.shape[0]):
+        hi = max(0.5 * limit[i], 2 * lo)
+        hi_out[i] = hi
+        mean = lo * hi * np.log(hi / lo) / (hi - lo)
+        people = outside * share[i] * farm_pop[i]
+        c = people / mean
+        count_out[i] = c if c >= 0.05 else 0.0
+        people_out[i] = c * mean
+
+
 def _box(a, r, op):
     """Combine each cell with its (2r+1) x (2r+1) neighbourhood (np.add sums, np.maximum
-    takes the largest); wraps east-west."""
-    rows = a.copy()
-    for dx in range(1, r + 1):
-        rows = op(op(rows, shift(a, 0, dx)), shift(a, 0, -dx))
-    out = rows.copy()
-    for dy in range(1, r + 1):
-        out = op(op(out, _shift_rows(rows, dy)), _shift_rows(rows, -dy))
+    takes the largest); wraps east-west, nothing beyond the poles. (Compiled.)"""
+    a = np.ascontiguousarray(a)
+    if r <= 0:
+        return a.copy()
+    if op is np.maximum:
+        return _box_max(a, r)
+    return _box_sum(a.astype(np.float64), r).astype(a.dtype if a.dtype.kind == "f" else np.float64)
+
+
+@njit(cache=True)
+def _box_sum(a, r):
+    h, w = a.shape
+    rows = np.zeros((h, w))
+    for y in range(h):
+        s = 0.0
+        for k in range(-r, r + 1):
+            s += a[y, k % w]
+        for x in range(w):
+            rows[y, x] = s
+            add = x + r + 1
+            if add >= w:
+                add -= w
+            sub = x - r
+            if sub < 0:
+                sub += w
+            s += a[y, add] - a[y, sub]
+    out = np.zeros((h, w))
+    acc = np.zeros(w)
+    for k in range(0, min(h, r + 1)):          # window for row 0: rows 0..r
+        for x in range(w):
+            acc[x] += rows[k, x]
+    for y in range(h):
+        for x in range(w):
+            out[y, x] = acc[x]
+        if y + r + 1 < h:
+            for x in range(w):
+                acc[x] += rows[y + r + 1, x]
+        if y - r >= 0:
+            for x in range(w):
+                acc[x] -= rows[y - r, x]
+    return out
+
+
+@njit(cache=True)
+def _box_max(a, r):
+    h, w = a.shape
+    pad = np.empty(w + 2 * r, a.dtype)
+    rows = np.empty_like(a)
+    for y in range(h):
+        for x in range(w + 2 * r):
+            xx = x - r
+            if xx < 0:
+                xx += w
+            elif xx >= w:
+                xx -= w
+            pad[x] = a[y, xx]
+        for x in range(w):
+            m = pad[x]
+            for k in range(1, 2 * r + 1):
+                if pad[x + k] > m:
+                    m = pad[x + k]
+            rows[y, x] = m
+    out = np.empty_like(a)
+    for y in range(h):
+        lo, hi = max(0, y - r), min(h, y + r + 1)
+        for x in range(w):
+            out[y, x] = rows[lo, x]
+        for k in range(lo + 1, hi):
+            for x in range(w):
+                if rows[k, x] > out[y, x]:
+                    out[y, x] = rows[k, x]
     return out
 
 
