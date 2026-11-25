@@ -13,6 +13,16 @@ hinterland's people; towns grow and decline gradually, and an established town k
 advantage over newcomers (incumbency). Townspeople are fed by the hinterland, so a town
 adds to what its cell can feed.
 
+No place grows beyond what can be brought to it to eat (`feed_limit`): a few tens of
+thousands where food comes on foot and by donkey, more on a navigable river or coast, and
+more again with canals, sailing, roads, writing, officials and coinage. So the first
+cities stay at tens of thousands and the great capitals come with the states able to feed
+them (Uruk ~40-80,000; Rome, fed by sea, ~1 million).
+
+Around each central place the rest of a region's townspeople live in a ladder of smaller
+towns (rank-size: about ten times as many places above each tenfold-smaller size). Those
+are not named one by one: the `small_towns` layer counts them per cell.
+
 A place of `town_min` people or more is a named town (in the language of the culture
 living there); 10,000 or more is a city. The `settlement` layer is the size of the
 largest place in each cell, and `settlement_id` which named place it is.
@@ -65,7 +75,9 @@ class Settlements(System):
             "plain": np.isin(biome, [BIOME_ID[b] for b in ("Grassland", "Savanna")]),
         }
 
+        self.water = (river | coast | lake).astype(np.float32)          # food can come by boat
         state.add_layer("settlement", np.float32, record="snapshot")
+        state.add_layer("small_towns", np.float32, record="snapshot")     # towns below the main place
         state.add_layer("settlement_id", np.int32, record="changes")
         state.add_layer("farming_since", np.int32, fill=-(2 ** 31), record="changes")
         state.tables["settlements"] = [None]      # id 0 = none
@@ -114,13 +126,45 @@ class Settlements(System):
                 around = _box(people, k, np.add) - town_people
                 nearby = town_people + around * (1 / self.scale ** 2 - 1) / ((2 * k + 1) ** 2 - 1)
         target = np.minimum(target, 0.9 * nearby + target * 0.1)
-        self._capitals(state, target, dt)
+        limit = self.feed_limit(state)
+        self._capitals(state, target, dt, limit)
+        target = np.minimum(target, limit)
+        self._small_towns(state, share, farm_pop, limit)
         size += (target - size) * (1 - np.exp(-dt / cfg.settlement_years))
         size[size < 50] = 0
         self._places(state)
         self._stats(state)
 
-    def _capitals(self, state, target, dt):
+    def feed_limit(self, state):
+        """The most people a place can be fed (per cell): by what its people know of moving
+        food and governing (canals, sailing, roads, writing, officials, coinage), and more
+        on a river or coast."""
+        cfg = state.config
+        limit = cfg.feed_base * (1 + cfg.feed_water * self.water)
+        tech = state.cells.get("tech")
+        if tech is not None:
+            from ..tech import bit
+            for key, extra in (("canals", cfg.feed_canals), ("sailing", cfg.feed_sailing),
+                               ("roads", cfg.feed_roads), ("writing", cfg.feed_writing),
+                               ("bureaucracy", cfg.feed_bureaucracy), ("coinage", cfg.feed_coinage)):
+                limit = limit * (1 + extra * ((tech & np.uint64(bit(key))) != 0))
+        return limit.astype(np.float32)
+
+    def _small_towns(self, state, share, farm_pop, limit):
+        """The towns below each region's main place: a rank-size ladder (Pareto, exponent 1)
+        from `town_min` up to half what a place can be fed, holding the region's townspeople
+        not in its main place. Counted per cell."""
+        cfg = state.config
+        people = (1 - cfg.central_place_share) * share * farm_pop      # townspeople not in the main place
+        lo = cfg.town_min
+        hi = np.maximum(0.5 * limit, 2 * lo)
+        mean = lo * hi * np.log(hi / lo) / (hi - lo)                    # mean size of a Pareto(1) town
+        count = people / mean
+        self._small_hi = hi
+        state.cells["small_towns"][:] = np.where(count >= 0.05, count, 0)
+        self._small_people = float((count * mean).sum())
+
+    def _capitals(self, state, target, dt, limit=None):
         """Capitals draw people, trade and tribute from their whole state: they grow far
         beyond what their own fields could support, fed by the rest of the state, and people
         move to them from across it."""
@@ -139,6 +183,8 @@ class Settlements(System):
             share = cfg.capital_share * (0.5 if records[sid]["kind"] == "chiefdom" else 1.0)   # chiefs draw less
             extra = share * polity.people[sid] * np.sqrt(polity.cohesion[sid])
             target.flat[cap] += extra
+            if limit is not None:
+                target.flat[cap] = min(target.flat[cap], limit.flat[cap])
             # Migration toward the capital, from across the state (people are conserved).
             want = target.flat[cap] / 0.9 - flat_pop[cap]
             if want <= 0:
@@ -254,11 +300,17 @@ class Settlements(System):
         size = state.cells["settlement"]
         total = max(float(state.cells["population"].sum()), 1e-9)
         towns = size >= cfg.town_min
+        small = state.cells["small_towns"]
+        lo, hi = cfg.town_min, getattr(self, "_small_hi", 2 * cfg.town_min)
+        # Smaller towns of 10,000+: the Pareto tail above 10,000 where the ladder reaches it.
+        tail = np.where(hi > CITY, (1 / CITY - 1 / np.maximum(hi, CITY)) / (1 / lo - 1 / hi), 0)
         state.stats.update({
-            "towns": int(towns.sum()),
-            "cities": int((size >= CITY).sum()),
+            "towns": int(towns.sum() + round(float(small.sum()))),
+            "named_towns": int(towns.sum()),
+            "cities": int((size >= CITY).sum() + round(float((small * tail).sum()))),
+            "cities_100k": int((size >= 100_000).sum()),
             "largest_settlement": float(size.max()) if size.size else 0.0,
-            "urban_share": float(size[towns].sum() / total),
+            "urban_share": float(size[towns].sum() + getattr(self, "_small_people", 0.0)) / total,
         })
 
 

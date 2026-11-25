@@ -7,7 +7,9 @@
 - Improvement: a newly tamed crop yields little at first and improves over centuries.
 - River water: on floodplains crops grow on the receding flood whatever the rain (the
   Nile, Mesopotamia, the Indus), and the yearly silt makes them yield up to twice as
-  much. Canals (a later technology: `canal_irrigation`) extend this to irrigable land.
+  much. Where people know canals (histsim/tech.py) this extends to dry irrigable land.
+- Farming technology raises what land can be intensified to: the plough and manuring on
+  rain-fed fields, canals on dry irrigable land, terraces on steep land.
 - Spread: each tamed species spreads to neighbouring cells where it can grow, at
   roughly the real pace (about 1 km a year on average) but unevenly, as on Earth:
   * fast along rivers and coasts and over good soil (the first farmers crossed central
@@ -116,15 +118,18 @@ class Farming(System):
         self._first_reach = set()
         self._stats(state)
 
-    def _apply_water(self, cfg):
+    def _apply_water(self, cfg, canal_cells=None):
         """Crop suitability and farmland with river water: floodplains always, irrigable
-        land as far as canals have been dug (`canal_irrigation`, 0..1)."""
+        land where people dig canals (`canal_cells`: the canals technology, per cell) or as
+        far as `canal_irrigation` (0..1, everywhere) says."""
         canals = float(getattr(cfg, "canal_irrigation", 0.0))
-        if canals == self._canals:
+        key = (canals, None if canal_cells is None else int(canal_cells.sum()))
+        if key == self._canals:
             return
-        self._canals = canals
+        self._canals = key
+        dug = canals if canal_cells is None else np.maximum(canals, canal_cells.astype(np.float32))
         # A real floodplain (0.4+) waters its fields fully; canals as far as they reach.
-        water = np.maximum(np.clip(self.flood / 0.4, 0, 1), canals * self.irrigable)
+        water = np.maximum(np.clip(self.flood / 0.4, 0, 1), dug * self.irrigable)
         watered = self.suit_watered * water[None]
         self.suit = np.where(self.is_crop[:, None, None], np.maximum(self.suit_dry, watered), self.suit_dry)
         self.can_tame = self.world_native & (self.suit > 0)    # where each species could be tamed
@@ -168,17 +173,27 @@ class Farming(System):
         cap = np.where(land, per_km2.max(axis=0) * self.area, 0).astype(np.float32)
         return cap, np.where(cap > 0, mode, 0).astype(np.uint8)
 
+    def knows(self, state, key):
+        """Cells whose people know a technology (False everywhere without the technology system)."""
+        tech = state.cells.get("tech")
+        if tech is None:
+            return np.zeros(state.shape, bool)
+        from ..tech import bit
+        return (tech & np.uint64(bit(key))) != 0
+
     def ceiling(self, state):
         """The most each cell's farmland can be intensified (x what it feeds unintensified):
-        rain-fed fields up to `rainfed_ceiling`; floodplains, and dry irrigable land a
-        state holds (canals), up to `irrigated_ceiling`; more for rice-like paddies; less
-        on poor or steep land."""
+        rain-fed fields up to `rainfed_ceiling`, more with the plough and with manuring;
+        floodplains, and dry irrigable land where canals are dug, up to `irrigated_ceiling`;
+        more for rice-like paddies; less on poor or steep land (terraces halve that)."""
         cfg = state.config
-        own = state.cells.get("state")
-        canals = self.irrigable * self.dryness * (own > 0) if own is not None else 0
+        canals = self.irrigable * self.dryness * self.knows(state, "canals")
         water = np.maximum(np.clip(self.flood / 0.4, 0, 1), canals)
-        quality = np.clip(self.arable_eff / 0.6, 0.3, 1) * np.clip(1 - self.slope / 80, 0.3, 1)
-        top = (cfg.rainfed_ceiling - 1 + (cfg.irrigated_ceiling - cfg.rainfed_ceiling) * water) * quality
+        steep = self.slope / np.where(self.knows(state, "terraces"), 2 * cfg.steep_slope, cfg.steep_slope)
+        quality = np.clip(self.arable_eff / 0.6, 0.3, 1) * np.clip(1 - steep, 0.3, 1)
+        rain = (cfg.rainfed_ceiling - 1) * (1 + cfg.plough_ceiling * self.knows(state, "plough")
+                                            + cfg.manuring_ceiling * self.knows(state, "manuring"))
+        top = (rain + (cfg.irrigated_ceiling - 1 - rain) * water) * quality
         if self.wet_grain is not None:
             paddy = np.where(self.has(state, self.wet_grain), np.clip(self.suit[self.wet_grain], 0, 1), 0)
             top = top * (1 + (cfg.paddy_ceiling - 1) * paddy)
@@ -265,8 +280,11 @@ class Farming(System):
                     cell = int(rng.choice(hit))   # one origin per species per step
                     self._domesticate(state, i, cell)
 
+        # Canals water dry irrigable land where they are known (rechecked every 50 years).
+        if state.year - getattr(self, "_water_year", -10 ** 9) >= 50:
+            self._water_year = state.year
+            self._apply_water(cfg, self.knows(state, "canals") if "tech" in state.cells else None)
         # Spread to neighbours (in several rounds on fine maps: see geo.rounds_for).
-        self._apply_water(cfg)
         from worldgen.generator import shift
         forage = state.cells["forager_capacity"] / np.maximum(self.area, 1e-6)
         rounds = rounds_for(self.scale)

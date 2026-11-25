@@ -54,13 +54,17 @@ class SimConfig:
     farming_advantage: float = 2.5      # foragers take up farming readily once it would feed this many
     frontier_floor: float = 0.04        #   times more people than foraging (less: this share of the pace)
     flood_yield: float = 1.0            # floodplain harvests up to (1 + this) times others (yearly silt)
-    canal_irrigation: float = 0.0       # how far canals water irrigable land, 0..1 (technology, phase 4)
+    canal_irrigation: float = 0.0       # canals everywhere, 0..1 (for tests; otherwise canals are dug
+                                        # where people know them: the canals technology)
     tsetse_block: float = 0.5           # tsetse above this keeps cattle and horses out
     # Intensification (Boserup): crowded farmers work their land harder over the centuries
     # (shorter fallow, ploughs, manure, terraces, irrigation), so old farmland feeds many
     # times more people than new. `intensity` (0..1) per cell multiplies what farmland
     # feeds, up to its ceiling.
-    rainfed_ceiling: float = 6.0        # most a rain-fed field can be intensified (x)
+    rainfed_ceiling: float = 5.5        # most a rain-fed field can be intensified (x) with the hoe,
+    plough_ceiling: float = 0.3         # ... (x - 1) this much more with the plough,
+    manuring_ceiling: float = 0.3       # ... and with manuring and rotation
+    steep_slope: float = 80.0           # m/km at which farmland is worth least (twice as steep with terraces)
     irrigated_ceiling: float = 30.0     # ... a floodplain, or dry irrigable land under a state (canals)
     paddy_ceiling: float = 1.5          # ... and this much more where the rice-like grain grows well
     intensify_years: float = 2500.0     # time scale of intensification under full pressure
@@ -98,14 +102,22 @@ class SimConfig:
     town_delay_years: float = 2000.0    # years of farming before towns can start to appear
     town_ramp_years: float = 3000.0     # ... and before they reach their full potential
     hinterland_km: float = 160.0        # a central place draws on the land about this far around it
-    urban_share_max: float = 0.15       # most of a dense hinterland's people that live in its central places
+    urban_share_max: float = 0.13       # most of a dense hinterland's people that live in its central places
     urban_density_ref: float = 3.0      # hinterland people per km2 for the full urban share
-    central_place_share: float = 0.6    # share of those townspeople in the main place
+    central_place_share: float = 0.5    # share of those townspeople in the main place
     river_site: float = 0.5             # site bonus on a river (counted twice for great rivers)
     coast_site: float = 0.4             # site bonus on a sea coast
     incumbency: float = 0.5             # an existing town's advantage over a new site
     settlement_years: float = 150.0     # how quickly places grow or shrink toward their potential
     largest_city_event_years: int = 300  # least years between "largest city" events
+    feed_base: float = 20_000.0         # most people a place can be fed by carts and porters,
+    feed_water: float = 1.0             # ... x (1 + this) on a river, lake or coast,
+    feed_canals: float = 0.2            # ... and x (1 + these) where its people know canals,
+    feed_sailing: float = 0.25           # ... sailing,
+    feed_roads: float = 0.8             # ... roads,
+    feed_writing: float = 0.3           # ... writing (records, granaries, tribute),
+    feed_bureaucracy: float = 0.8       # ... officials,
+    feed_coinage: float = 0.8           # ... coinage (markets)
 
     # ------------------------------------------------------------ states
     state_town_min: float = 2000.0      # a town this big may become a chiefdom's seat

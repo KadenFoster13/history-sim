@@ -621,6 +621,36 @@ Targets (averages across worlds and seeds): largest city ~30-100k at 3000 BCE, 0
 least ~10 per million people at 1 CE; urban share 5-10% (unchanged); about the same at any
 map size.
 
+**Step 3 as built (histsim 0.6.2, 2026-11-24).**
+- *Farming technology, per cell:* canals water dry irrigable land where they are known
+  (crops grow there and it can be intensified up to the irrigated ceiling; replaces "dry
+  irrigable land a state holds"; `canal_irrigation` stays only as a test override); the
+  plough and manuring each raise the rain-fed ceiling by 30% of its gain (5.5x with the
+  hoe, ~7.3x with both); terraces halve the penalty of steep land.
+- *Places are fed:* no place grows beyond `feed_limit`: 20,000 people, x2 on a river, lake
+  or coast, x1.2 canals, x1.25 sailing, x1.3 writing, x1.8 each for roads, officials and
+  coinage (what its cell knows). Capitals draw from their state only up to it.
+- *Ladder of towns:* the townspeople of each area not in its main place (half) live in
+  smaller towns, rank-size (Pareto 1) from 2,000 to half the feed limit, counted per cell in
+  `small_towns`; stats `towns` and `cities` include them, plus `named_towns` and
+  `cities_100k`; the hover shows them; urban share counts them (`urban_share_max` 0.15 -> 0.13).
+
+Worlds 31 and 22, 800 px, seeds 1-3, mean (range) over runs:
+
+| | 3000 BCE | 2000 BCE | 1000 BCE | 1 CE | Aim |
+|---|---|---|---|---|---|
+| Largest city (0.6.1) | 285k | 462k | 587k | 715k | |
+| Largest city (0.6.2) | 56k (22-78k) | 106k | 148k | 196k (60-253k) | 30-100k; 0.2-1M at 1 CE |
+| Cities of 100,000+ (0.6.1) | 4 | 12 | 27 | 46 | |
+| Cities of 100,000+ (0.6.2) | 0 | 2 | 6 | 12 (0-26) | none or a few; 10-30 at 1 CE |
+| Towns of 2,000+ (0.6.1 -> 0.6.2) | 26 -> 237 | 54 -> 562 | 91 -> 1,055 | 136 -> 1,752 | 10+ per million people at 1 CE |
+| Share in towns | 3% | 5% | 7% | 8% | 5-10% |
+
+At 1 CE there are 8.7 towns of 2,000+ per million people (aim 10+) and the largest city is at
+the low end (Rome ~0.5-1M was fed by sea trade: step 4). States: people in states 32-73%,
+largest state 5-8% at 1 CE, much as in 0.6.1; world population 90-290M (mean ~200M). Run
+time the same.
+
 **Economy and trade.**
 - **Surplus and wealth:** each cell produces food beyond its people's needs (from
   intensity) plus goods from local resources (copper, tin, gold, silver, salt, timber,
@@ -671,6 +701,7 @@ Plus the existing checks (population, cities, farming, wars) and 400 vs 800 px.
    `canal_irrigation`), manuring; re-check population and densities. Towns and cities:
    capitals fed only by the means to feed them, and a rank-size ladder of places with small
    towns counted per cell (see "Towns and cities").
+   **Built 2026-11-24 (histsim 0.6.2)**, see "Step 3 as built" above.
 4. Economy and trade: surplus, wealth, trade routes and goods, trade spreading
    technology, towns on routes (crossroads, river ports, fords, coasts) and trade feeding
    cities; trade overlay.
@@ -963,6 +994,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | Phase 4 step 3 built (histsim 0.6.2): canals, plough, manuring and terraces per cell; places capped by what can be brought to them to eat (transport and the technology of rule); a rank-size ladder of smaller towns counted per cell. 800 px: largest city 285k -> 56k at 3000 BCE, 715k -> 196k at 1 CE; cities of 100,000+ at 1 CE 46 -> 12; towns of 2,000+ 136 -> 1,752 |
 | 2026-11-24 | Towns and cities to be reworked in phase 4 steps 3-4: early cities far too big (largest ~285k at 3000 BCE vs Uruk ~40-80k), too many of 100,000+, far too few small towns (top-heavy, not rank-size); urban share and the largest city at 1 CE fit. Plan: capitals capped by the means to feed them (transport and the technology of rule), a rank-size ladder of places with small towns counted per cell, towns on trade routes. Counts per million people barely change with map size |
 | 2026-11-24 | Phase 4 step 2 built (histsim 0.6.1): technology of rule and war (reach, holding together, law, arms, walls, siegecraft), growth in bursts (an expansion drive renewed by new dynasties), land taken in for its worth, chiefdoms that dissolve, poor land falling back, calmer borders; viewer shows chiefdoms, kingdoms and empires. 800 px: border churn 25-30% -> 4-14% a century, chiefdoms ~3,000 km2, cold lands in states 0-4%, people in states 29-74%; largest state still ~5% at 1 CE |
 | 2026-11-24 | State growth to be reshaped in phase 4 step 2: states grew steadily with no pauses or limits, never gave land back, churned ~25-30% of their land a century, and chiefdoms were kingdom-sized. Plan: an expansion drive (pulses and plateaus), absorbing land by its worth, land falling back after collapse, chiefdoms as their own tier, calmer borders, state kinds shown in the viewer. Calibration judged on averages across worlds and seeds, not single runs |

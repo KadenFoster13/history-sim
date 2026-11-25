@@ -7,7 +7,7 @@
     sim.run(until=12_000)
     recorder.close()
 """
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 
 from .core import Simulation, System, label, real_label, real_year, sim_year
 from .record import RunReader, RunRecorder

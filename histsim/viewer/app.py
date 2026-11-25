@@ -912,6 +912,9 @@ class HistoryViewer:
         places = tables.get("settlements") or []
         if size is not None and ids is not None and size[r, c] >= TOWN_MIN and 0 < ids[r, c] < len(places):
             parts.append(f"town: {places[ids[r, c]]['name']} ({_count(size[r, c])})")
+        small = layers.get("small_towns")
+        if small is not None and small[r, c] >= 0.5:
+            parts.append(f"about {small[r, c]:.0f} smaller town{'s' if small[r, c] >= 1.5 else ''}")
         return "   |   ".join(parts)
 
 

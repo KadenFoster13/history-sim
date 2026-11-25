@@ -93,7 +93,7 @@ and cities with their names, the largest peoples and towns, and recent events.
 | Enhance, `E` | Redraw the area in view 2-8x finer with the world generator's detailed coasts and rivers (zoom in first; takes a few seconds). Clear or `Esc` goes back |
 | Dark / Light, `D` | Dark mode (the same remembered setting as the world viewer) |
 | `S` | Save the view as a PNG in `renders/` |
-| Hover | People, way of life, culture and language family, the technologies known there, the state (and what kind), town |
+| Hover | People, way of life, culture and language family, the technologies known there, the state (and what kind), town and how many smaller towns |
 
 To browse worlds visually, use the generator's viewer: `python -m worldgen`.
 
