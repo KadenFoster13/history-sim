@@ -8,7 +8,7 @@ A historical simulator built on worlds from the separate
 - **worldgen**: everything physical (terrain, climate, biomes, lakes, rivers).
 - **history-sim**: everything human (people, settlements, borders, crossings, ports, history).
 
-The simulator is written against **worldgen 1.5.2**: the world data it reads is listed
+The simulator is written against **worldgen 1.6.0**: the world data it reads is listed
 in worldgen's DATA.md, and `main.py` checks the data version when it starts.
 
 ## Setup
@@ -21,7 +21,7 @@ venv\Scripts\activate            (Windows)   or   source venv/bin/activate   (ma
 pip install -r requirements.txt
 ```
 
-This installs worldgen 1.5.2 straight from GitHub.
+This installs worldgen 1.6.0 straight from GitHub.
 
 ### Working on both projects at once
 
@@ -44,7 +44,13 @@ python -m histsim replay runs/world31_seed1        replay a saved run in the vie
 python -m histsim bench --world 31                 time a run to 1 CE, system by system
 ```
 
-(`python main.py ...` does the same.) `--world` picks the world, `--seed` the history:
+`--world 0` is Earth (worldgen 1.6+): real elevation, wild species in their real homelands
+and ores in real ore regions, with the generator's modelled climate. It is for playing on
+Earth and for checking the simulator against Earth's geography; the simulation still
+models forces and does not replay Earth's events.
+
+(`python main.py ...` does the same.) `--world` picks the world (`--world 0` is Earth: real terrain,
+climate, wild species homelands and ore regions; see worldgen's README), `--seed` the history:
 the same pair always gives the same history. Years count from year 0 (10,000 BCE), so
 year 10,000 is 1 CE and `--until 12000` (the default) runs to 2000 CE.
 
