@@ -75,7 +75,7 @@ TECHS = (
       needs=("farming", "copper_near", "tin_near"), finds=("towns",), rarity=4, crowd=0.8, earth=-3300,
       effect="war bonus; drives the tin trade"),
     T("iron", "iron working", "learn to smelt iron", "metals", needs=("farming", "iron_near"),
-      finds=("towns",), rarity=200, crowd=1.0, earth=-1200, effect="cheap metal: war, ploughs, clearing"),
+      finds=("towns",), rarity=500, crowd=1.0, earth=-1200, effect="cheap metal: war, ploughs, clearing"),
     # ---- transport
     T("wheel", "the wheel and cart", "build the first wheeled carts", "transport", needs=("herds",),
       finds=("farming",), rarity=10, crowd=0.5, earth=-3500, effect="travel on open land cheaper"),
@@ -98,7 +98,7 @@ TECHS = (
     T("law", "written law", "write down their laws", "rule", ("writing",), needs=("state",),
       finds=("kingdom",), rarity=40, crowd=0.8, earth=-1800, effect="rebellions rarer"),
     T("coinage", "coinage", "strike coins", "rule", ("bronze", "counting"), needs=("towns",),
-      finds=("kingdom", "precious_near"), rarity=80, crowd=1.0, earth=-600, effect="trade volume up; taxes"),
+      finds=("kingdom", "precious_near"), rarity=250, crowd=1.0, earth=-600, effect="trade volume up; taxes"),
     # ---- building and war
     T("walls", "city walls", "wall their towns", "building", needs=("towns",), rarity=2, crowd=0.3,
       earth=-8000, effect="town defence up"),

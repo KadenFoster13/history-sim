@@ -66,8 +66,8 @@ ancient voyages reach large lands within 1,500 km), `most` (voyages up to 2,500 
 `all` (every sizeable landmass). The levels are defined in `histsim/config.py`.
 
 `maps --kind` draws `people` (how they live), `density`, `cultures`, `families`
-(language families), `states` (war fronts in red), `technology` (metal ages and writing) or `arrival` (when
-people first got there); towns show as dots.
+(language families), `states` (war fronts in red), `technology` (metal ages and writing), `trade` (routes by
+volume) or `arrival` (when people first got there); towns show as dots.
 `graphs` and `maps` take `--dark` or `--light` (default: the viewers' remembered setting);
 `maps --background terrain|biomes|white` picks what the maps are drawn over (default:
 the history viewer's last choice). Farmers are crimson, herders orange, foragers gold.
@@ -76,8 +76,8 @@ the history viewer's last choice). Farmers are crimson, herders orange, foragers
 
 `watch` simulates while you watch (add `--save runs/<name>` to keep the run for replay
 and graphs); `replay` plays back a saved run with a year slider. Both show the map in
-several modes (people, density, cultures, language families, states, technology, background only,
-arrival), towns
+several modes (people, density, cultures, language families, states, technology, trade, background
+only, arrival), towns
 and cities with their names, the largest peoples and towns, and recent events.
 
 | Control | Does |
@@ -86,26 +86,27 @@ and cities with their names, the largest peoples and towns, and recent events.
 | Slower / Faster, `-` / `+` | Years per frame (1 to 500) |
 | Step, `Right` | One jump forward |
 | Year slider (replay) | Jump to any year |
-| Map buttons | People, density, cultures, language families, states (pale hatched = chiefdoms, solid = kingdoms, bold edges = empires; war fronts in red), technology (stone, copper, bronze or iron age; hatched where people write), background only, arrival |
+| Map buttons | People, density, cultures, language families, states (pale hatched = chiefdoms, solid = kingdoms, bold edges = empires; war fronts in red), technology (stone, copper, bronze or iron age; hatched where people write), trade (routes by volume), background only, arrival |
 | Background buttons | Draw the maps over terrain, biomes or plain white (remembered) |
 | Scroll, drag, `R` | Zoom around the cursor, move (sideways turns the map; it wraps), reset |
 | `C` | Cut the map where it crosses the least land (done automatically at the start) |
 | Enhance, `E` | Redraw the area in view 2-8x finer with the world generator's detailed coasts and rivers (zoom in first; takes a few seconds). Clear or `Esc` goes back |
 | Dark / Light, `D` | Dark mode (the same remembered setting as the world viewer) |
 | `S` | Save the view as a PNG in `renders/` |
-| Hover | People, way of life, culture and language family, the technologies known there, the state (and what kind), town and how many smaller towns |
+| Hover | People, way of life, culture and language family, the technologies known there, the state (and what kind), trade passing, town and how many smaller towns |
 
 To browse worlds visually, use the generator's viewer: `python -m worldgen`.
 
 ## How it works
 
-See [PLAN.md](PLAN.md) for the design and the phases. In short:
+See [PLAN.md](PLAN.md) for the design and the phases, and [REFERENCES.md](REFERENCES.md) for
+the scholarship the rules and checks draw on. In short:
 
 | Folder | Contents |
 |---|---|
 | `histsim/core` | The world state, the yearly loop, random streams, the calendar |
 | `histsim/config.py` | Every tunable setting for the simulator, with comments |
-| `histsim/systems` | One module per force of history: environment, population (and the peopling of the world before year 0), farming, cultures, settlements, states, technology |
+| `histsim/systems` | One module per force of history: environment, population (and the peopling of the world before year 0), farming, cultures, settlements, states, technology, trade |
 | `histsim/tech.py` | The web of technologies: prerequisites, needs, rarity, Earth's dates |
 | `histsim/names` | Generated languages: sound systems, sound changes between related languages, names |
 | `histsim/agents` | Decisions: the shared decision step and the built-in AI (war, alliances) |

@@ -102,7 +102,7 @@ class SimConfig:
     town_delay_years: float = 2000.0    # years of farming before towns can start to appear
     town_ramp_years: float = 3000.0     # ... and before they reach their full potential
     hinterland_km: float = 160.0        # a central place draws on the land about this far around it
-    urban_share_max: float = 0.13       # most of a dense hinterland's people that live in its central places
+    urban_share_max: float = 0.12       # most of a dense hinterland's people that live in its central places
     urban_density_ref: float = 3.0      # hinterland people per km2 for the full urban share
     central_place_share: float = 0.5    # share of those townspeople in the main place
     river_site: float = 0.5             # site bonus on a river (counted twice for great rivers)
@@ -224,6 +224,24 @@ class SimConfig:
     law_loyalty: float = 0.3            # written law lowers provinces' restlessness by this much
     walls_defence: float = 0.5          # walls add this share to town and capital defence
     siege_breach: float = 0.6           # siegecraft takes away this share of town and capital defence
+
+    # --------------------------------------------------------- trade (systems/trade.py)
+    trade_every: int = 50               # trade routes are worked out every this many years
+    trade_town_min: float = 2_000.0     # places this big trade (and are the ends of routes)
+    trade_link_cost: float = 600.0      # a town's own trading area: this far (km x travel cost)
+    trade_reach: float = 3_000.0        # towns trade with others up to this far along the routes
+    trade_near: float = 50.0            # (distances below this count as this, for the gravity rule)
+    trade_min_flow: float = 0.05        # a pair trading this much counts toward the longest route
+    goods_reach: float = 1_500.0        # ores and metals reach towns this far along the routes
+    trade_half: float = 200.0            # trade volume at which a place counts as half "busy"
+    wheel_saving: float = 0.2           # overland travel cost saved by the wheel,
+    roads_saving: float = 0.4           # ... by roads inside a state
+    river_cost: float = 0.3             # travel cost on a big river where people sail (plains = 1)
+    sea_cost: float = 3.0               # ... along coasts without sailing (paddling)
+    sea_cost_sail: float = 0.2          # ... and by sail
+    trade_tech: float = 1.0             # how readily knowledge crosses a busy route
+    trade_site: float = 0.5             # busy places make better town sites (x (1 + this))
+    feed_trade: float = 0.5             # ... and can be fed more (x (1 + this))
 
     # --------------------------------------------------------- technology (histsim/tech.py)
     tech_every: int = 10                # technology is found, spread and lost every this many years

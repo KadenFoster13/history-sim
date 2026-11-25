@@ -141,5 +141,63 @@ class FarmingAndTownTests(unittest.TestCase):
         self.assertGreaterEqual(st.stats["cities"], st.stats["cities_100k"])
 
 
+class TradeTests(unittest.TestCase):
+    """Phase 4 step 4: routes between towns, goods and knowledge along them."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sim = run(years=9000)                 # to 1000 BCE
+
+    def test_routes_link_towns(self):
+        st = self.sim.state
+        trade = st.tables["trade"]
+        self.assertTrue(trade.links)
+        size = st.cells["settlement"].ravel()
+        for a, b, v in trade.links:
+            self.assertNotEqual(a, b)
+            self.assertGreaterEqual(size[a], st.config.trade_town_min)
+            self.assertGreaterEqual(v, 0)
+        t = st.cells["trade"]
+        self.assertTrue((t >= 0).all())
+        self.assertFalse((t[~trade.mask] > 0).any())          # on land or coastal waters only
+        self.assertGreater(st.stats["longest_trade_km"], 0)
+
+    def test_sailing_and_roads_cut_costs(self):
+        st = self.sim.state
+        trade = st.tables["trade"]
+        tech = st.cells["tech"]
+        saved = tech.copy()
+        try:
+            tech[:] = 0
+            slow = trade._costs(st, tech)
+            tech[:] = np.uint64(bit("sailing") | bit("wheel"))
+            fast = trade._costs(st, tech)
+        finally:
+            tech[:] = saved
+        sea = trade.coast_sea.ravel()
+        self.assertTrue((fast[sea] < slow[sea]).all())
+        land = trade.land.ravel()
+        self.assertTrue((fast[land] <= slow[land]).all())
+        self.assertTrue((fast[land] < slow[land]).any())
+
+    def test_goods_and_knowledge_travel(self):
+        st = self.sim.state
+        trade = st.tables["trade"]
+        system = st.tables["technology"]
+        for g, arrived in trade.goods.items():
+            self.assertEqual(arrived.dtype, bool)
+            self.assertEqual(arrived.shape, system.static[g].shape)
+        # What a town is offered is what its partners know.
+        tech = st.cells["tech"].ravel()
+        partners = {}
+        for a, b, _ in trade.links:
+            partners.setdefault(a, 0)
+            partners.setdefault(b, 0)
+            partners[a] |= int(tech[b])
+            partners[b] |= int(tech[a])
+        for cell, known in partners.items():
+            self.assertEqual(int(trade.offer[cell]) & ~known, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

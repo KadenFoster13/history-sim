@@ -9,7 +9,8 @@ Controls
   Step (or Right arrow)           one jump forward while paused
   Year slider (replay)            jump to any year
   Map buttons on the right        people, density, cultures, language families, states,
-                                  technology (metal ages, writing), background only, arrival
+                                  technology (metal ages, writing), trade routes,
+                                  background only, arrival
   Background buttons              draw maps over terrain, biomes or plain white (remembered)
   Scroll to zoom around the cursor, drag to move, R to reset the view
   Drag sideways to turn the map (it wraps east-west); C cuts it where it crosses the
@@ -33,14 +34,14 @@ from matplotlib.widgets import Button, RadioButtons, Slider
 
 from ..analysis.maps import (AGE_COLOURS, AGE_LABELS, BACKGROUNDS, MODE_COLOURS, TOWN_MIN, WAR_RED,
                              arrival_map, base_map, culture_colours, culture_map, density_map, family_map,
-                             people_map, state_colours, state_map, technology_map)
+                             people_map, state_colours, state_map, technology_map, trade_map)
 from ..core.calendar import label, real_year
 from ..systems.population import FARMING, FORAGING, HERDING
 from .enhance import EnhancedArea
 
 MODES = {"People": people_map, "Density": density_map, "Cultures": culture_map,
          "Language families": family_map, "States": state_map, "Technology": technology_map,
-         "Background only": None,
+         "Trade": trade_map, "Background only": None,
          "Arrival": arrival_map}
 BACKGROUND_LABELS = {"Terrain": "terrain", "Biomes": "biomes", "White": "white"}
 SPEEDS = [1, 5, 10, 25, 50, 100, 250, 500]          # years per frame
@@ -577,6 +578,9 @@ class HistoryViewer:
             items = self._state_swatches(layers, tables, n=4)
             self._swatches(items + [(tuple(WAR_RED), "War front"), town],
                            note="pale hatched = chiefdom, solid = kingdom, bold edge = empire")
+        elif self.mode == "Trade":
+            ticks = [(0.0, "1"), (0.29, "10"), (0.57, "100"), (0.86, "1,000")]
+            self._scale_bar("plasma", ticks, "trade passing (relative)")
         elif self.mode == "Technology":
             self._swatches([(AGE_COLOURS[k], AGE_LABELS[k]) for k in (0, 1, 2, 3)] + [town],
                            note="hatched = writing")
@@ -912,6 +916,9 @@ class HistoryViewer:
         places = tables.get("settlements") or []
         if size is not None and ids is not None and size[r, c] >= TOWN_MIN and 0 < ids[r, c] < len(places):
             parts.append(f"town: {places[ids[r, c]]['name']} ({_count(size[r, c])})")
+        trade = layers.get("trade")
+        if trade is not None and trade[r, c] >= 1:
+            parts.append(f"trade route ({trade[r, c]:,.0f})")
         small = layers.get("small_towns")
         if small is not None and small[r, c] >= 0.5:
             parts.append(f"about {small[r, c]:.0f} smaller town{'s' if small[r, c] >= 1.5 else ''}")

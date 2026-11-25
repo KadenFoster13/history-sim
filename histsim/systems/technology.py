@@ -118,6 +118,10 @@ class Technology(System):
                  "herds": cattle | horse, "cattle": cattle, "horse": horse, "towns": towns,
                  "state": in_state, "kingdom": kingdom}
         needs.update({k: v[idx] for k, v in self.static.items()})
+        trade = state.tables.get("trade")
+        if trade is not None:                      # ores and metals that come by trade
+            for k, v in trade.goods.items():
+                needs[k] = needs[k] | v[idx]
         return needs
 
     def _allowed(self, needs, known, bits):
@@ -160,10 +164,14 @@ class Technology(System):
         ease = (1 + cfg.tech_corridor * needs["water"]) * (1 + cfg.tech_state_spread * needs["state"])
         rounds = rounds_for(self.scale)
         rate = cfg.tech_spread_km_year * dt / rounds / self.kpp
+        trade = state.tables.get("trade")
+        offer = trade.offer if trade is not None else None
         for _ in range(rounds):
             near = np.zeros_like(tech)
             for k in range(4):
                 near |= tech[self.neighbours[k]]
+            if offer is not None:
+                near |= offer                      # what trading partners know
             cand = near[idx] & ~known & usable
             j = np.flatnonzero(cand)
             if not len(j):
@@ -178,6 +186,10 @@ class Technology(System):
                     continue
                 count = ((around[:, sel] & b) != 0).sum(axis=0)
                 chance = 1 - np.exp(-rate * count / 2 * ease[j[sel]])
+                if offer is not None:              # by trade: a chance per step, by how busy
+                    traded = (offer[cells[sel]] & b) != 0
+                    w = trade.offer_weight[cells[sel]] * traded
+                    chance = 1 - (1 - chance) * np.exp(-cfg.trade_tech * w * dt / rounds / 10)
                 hit = sel[rng.random(len(sel)) < chance]
                 gained[hit] |= b
             known[j] |= gained

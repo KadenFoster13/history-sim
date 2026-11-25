@@ -107,9 +107,12 @@ class Settlements(System):
         density = hinter / np.maximum(hinter_area, 1e-6)
         share = cfg.urban_share_max * complexity * np.clip(density / cfg.urban_density_ref, 0, 1)
         size = state.cells["settlement"]
-        score = share * hinter * self.site * (1 + cfg.incumbency * (size > 0))
+        trade = state.tables.get("trade")
+        busy = trade.busy(state) if trade is not None else 0
+        site = self.site * (1 + cfg.trade_site * busy)                 # crossroads, ports
+        score = share * hinter * site * (1 + cfg.incumbency * (size > 0))
         centre = (score > 0) & (score >= _box(score, r, np.maximum))
-        quality = np.clip(self.site / self.site_mean, 0.5, 2.5)
+        quality = np.clip(site / self.site_mean, 0.5, 2.5)
         target = np.where(centre, cfg.central_place_share * share * hinter * quality, 0)
         # A town can't outgrow the people around it for long: its own townspeople plus the
         # farmers of an 800-px cell's ~2,500 km2 around it, whatever the map's cell size
@@ -148,6 +151,9 @@ class Settlements(System):
                                ("roads", cfg.feed_roads), ("writing", cfg.feed_writing),
                                ("bureaucracy", cfg.feed_bureaucracy), ("coinage", cfg.feed_coinage)):
                 limit = limit * (1 + extra * ((tech & np.uint64(bit(key))) != 0))
+        trade = state.tables.get("trade")
+        if trade is not None:                   # grain brought by trade (Rome's from Egypt)
+            limit = limit * (1 + cfg.feed_trade * trade.busy(state))
         return limit.astype(np.float32)
 
     def _small_towns(self, state, share, farm_pop, limit):

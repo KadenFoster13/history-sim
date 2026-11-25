@@ -8,7 +8,7 @@ from ..record.reader import RunReader
 
 # forage (gold), herd (orange), farm (crimson: stands out on green land)
 MODE_COLOURS = {1: (0.95, 0.80, 0.35), 2: (0.85, 0.45, 0.15), 3: (0.78, 0.12, 0.40)}
-MAP_KINDS = ("people", "density", "cultures", "families", "states", "technology", "arrival")
+MAP_KINDS = ("people", "density", "cultures", "families", "states", "technology", "trade", "arrival")
 WAR_RED = np.array([0.85, 0.08, 0.08])
 BACKGROUNDS = ("terrain", "biomes", "white")    # what maps are drawn over
 TOWN_MIN = 2000
@@ -173,6 +173,23 @@ def technology_map(world, layers, tables=None, background="terrain", year=None):
     return img
 
 
+def trade_map(world, layers, tables=None, background="terrain", year=None):
+    """Trade routes by how much passes along them (log scale, dim to bright), over the
+    states' lands lightly tinted."""
+    from matplotlib import colormaps
+    img = base_map(world, background)
+    own = layers.get("state")
+    if own is not None:
+        img[own > 0] = img[own > 0] * 0.85 + 0.15 * np.array([0.95, 0.9, 0.8])
+    trade = layers.get("trade")
+    if trade is None:
+        return img
+    here = trade > 0.5
+    v = np.clip(np.log10(np.maximum(trade[here], 0.5)) / 3.5, 0, 1)      # 0.5 .. ~3,000
+    img[here] = colormaps["plasma"](0.15 + 0.85 * v)[:, :3]
+    return img
+
+
 def state_colours(tables):
     """An (n, 3) colour lookup by state id."""
     states = tables["states"]
@@ -278,7 +295,7 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
         years = [run.first_year + round(span * f / 5 / 100) * 100 for f in range(6)]
     draw = {"people": people_map, "density": density_map, "cultures": culture_map,
             "families": family_map, "states": state_map, "technology": technology_map,
-            "arrival": arrival_map}[kind]
+            "trade": trade_map, "arrival": arrival_map}[kind]
     tables = run.tables()
     cols = 2
     rows = (len(years) + 1) // cols
@@ -312,6 +329,7 @@ def plot_maps(run_dir, years=None, kind="people", out=None, world=None, dark=Non
               "families": "language families; dots = towns",
               "states": "states: pale hatched = chiefdoms, solid = kingdoms, bold edges = empires; "
                         "red = war fronts; dots = towns",
+              "trade": "trade routes by volume (dark purple = little, yellow = busiest); dots = towns",
               "technology": "metal age: sand = stone, orange = copper, gold = bronze, blue-grey = iron; "
                             "hatched = writing",
               "arrival": "when people arrived: dark = earliest, light = latest, grey = not yet reached"}[kind]

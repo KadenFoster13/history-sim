@@ -665,6 +665,50 @@ time the same.
   (bigger cities at crossroads and ports), and gives states income (money, roads). It
   is also the road that religions (phase 5) and epidemics (phase 6) will travel.
 
+**Step 4 as built (histsim 0.7.0, 2026-11-24).** `systems/trade.py`, every 50 years once towns
+exist:
+- *Routes:* every named town (2,000+) gets the land it reaches most cheaply (one multi-source
+  shortest-path search over land and coastal waters, up to 600 km x travel cost); towns
+  whose lands meet are linked along the cheapest crossing. Travel cost per km: the land's
+  (biome, slope) x0.8 with the wheel, x0.6 on roads inside a state; 0.3 on big rivers and
+  0.2 along coasts where people sail; 3 along coasts without sailing; no open-sea crossings
+  (phase 7).
+- *Flows:* every pair of towns within 3,000 (km x cost) along the links trades by gravity
+  (size x size / cost^2), carried along the cheapest chain of links (numba), so busy
+  routes and crossroads emerge; the `trade` layer is the volume through each cell.
+- *Goods:* copper, tin and gold or silver reach towns within 1,500 of a town that has them,
+  and those towns' lands: the technology needs `copper_near`, `tin_near`, `precious_near`
+  are met by trade as well as by ore nearby (bronze far from tin).
+- *Knowledge:* each link offers what one end knows to the other; the technology system
+  adds that to neighbours' knowledge, more readily the busier the link.
+- *Towns:* busy places (half "busy" at a volume of 200) are better town sites (x1.5) and
+  can be fed more (x1.5): crossroads, river ports and coasts grow.
+- *Viewer:* a Trade map mode (routes by volume; `maps --kind trade`), trade in the hover,
+  graphs of links, volume and the longest distance goods travel.
+
+Worlds 31 and 22, 800 px, seeds 1-3, to 1 CE, before (0.6.2) and after:
+
+| | 0.6.2 | 0.7.0 | Aim |
+|---|---|---|---|
+| Longest distance goods travel, 1 CE | - | 3,200-4,700 km | 2,000+ km |
+| Trade links, 1 CE | - | 84-297 | |
+| People knowing bronze, 1 CE | 0-25% (none on some world-22 runs) | 21-71% | widespread where tin can be had |
+| Bronze first found | 4,640-1,060 BCE (0.6.0) | 4,140-2,090 BCE (mean ~3,240) | ~3,300 BCE |
+| Largest city, 3000 BCE / 1 CE | 56k / 196k | 130k / 332k | 30-100k / 0.2-1M |
+| Cities of 100,000+, 1 CE | 12 | 33 | 10-30 |
+| Share in towns, 1 CE | 8% | 9% | 5-10% |
+| People in states / largest state, 1 CE | ~54% / ~6% | ~60% / ~8% (peaks to 18%) | 50-85% / 8-30% |
+| Big states holding steady | ~28% | ~32% | about half |
+| World population, 1 CE | ~200M | ~210M | 100-500M |
+
+Trade lifts what it should: bronze spreads with tin, routes reach thousands of km, the
+largest state and largest city at 1 CE move up into range. Early cities are too big again
+(~130k at 3000 BCE): not from trade's own feeding but because trade spreads roads and
+bureaucracy to the first great states sooner, and the technology of rule still comes too
+soon after writing (the discovery rule, step 5). Iron is now rarer to find (rarity 500)
+and coinage much rarer (250) since trade carries gold and silver. Runs take ~15% longer
+at 800 px (O1).
+
 **Viewer and graphs.** A Technology map mode (the age each cell is in: stone, copper,
 bronze, iron, with writing and other marks), a trade overlay (routes by volume), hover
 lines for known technologies and trade; graphs of each technology's share of people,
@@ -705,6 +749,7 @@ Plus the existing checks (population, cities, farming, wars) and 400 vs 800 px.
 4. Economy and trade: surplus, wealth, trade routes and goods, trade spreading
    technology, towns on routes (crossroads, river ports, fords, coasts) and trade feeding
    cities; trade overlay.
+   **Built 2026-11-24 (histsim 0.7.0)**, see "Step 4 as built" above.
 5. Calibration on worlds 31 and 22 at 800 px, 400 vs 800 px, docs and decision log.
    Versions: histsim 0.6 (technology), 0.7 (trade).
 
@@ -994,6 +1039,7 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | Phase 4 step 4 built (histsim 0.7.0): trade routes between towns over land, rivers and coasts (gravity flows along the cheapest chains of links), copper, tin and gold or silver carried up to 1,500 (km x cost), knowledge carried along routes, busy places grow and are fed more; Trade map mode. 800 px: goods travel 3,200-4,700 km by 1 CE, bronze known by 21-71% of people, largest state ~8% and largest city ~330k at 1 CE; early cities too big again (~130k at 3000 BCE) through early technology of rule (step 5); runs ~15% longer. Added REFERENCES.md |
 | 2026-11-24 | Phase 4 step 3 built (histsim 0.6.2): canals, plough, manuring and terraces per cell; places capped by what can be brought to them to eat (transport and the technology of rule); a rank-size ladder of smaller towns counted per cell. 800 px: largest city 285k -> 56k at 3000 BCE, 715k -> 196k at 1 CE; cities of 100,000+ at 1 CE 46 -> 12; towns of 2,000+ 136 -> 1,752 |
 | 2026-11-24 | Towns and cities to be reworked in phase 4 steps 3-4: early cities far too big (largest ~285k at 3000 BCE vs Uruk ~40-80k), too many of 100,000+, far too few small towns (top-heavy, not rank-size); urban share and the largest city at 1 CE fit. Plan: capitals capped by the means to feed them (transport and the technology of rule), a rank-size ladder of places with small towns counted per cell, towns on trade routes. Counts per million people barely change with map size |
 | 2026-11-24 | Phase 4 step 2 built (histsim 0.6.1): technology of rule and war (reach, holding together, law, arms, walls, siegecraft), growth in bursts (an expansion drive renewed by new dynasties), land taken in for its worth, chiefdoms that dissolve, poor land falling back, calmer borders; viewer shows chiefdoms, kingdoms and empires. 800 px: border churn 25-30% -> 4-14% a century, chiefdoms ~3,000 km2, cold lands in states 0-4%, people in states 29-74%; largest state still ~5% at 1 CE |
