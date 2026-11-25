@@ -76,7 +76,11 @@ class Population(System):
         state.add_layer("capacity", np.float32, record="none")
         state.add_layer("forager_capacity", np.float32, record="none")
         voyages = []
-        arrival = people_the_world(world, cfg, state.rng.get("peopling"), voyages)
+        arrival = None
+        if self.scale > 1 and cfg.peopling_on_reference_map:
+            arrival = _arrival_from_finer_map(world, cfg, state.rng.get("peopling"), voyages)
+        if arrival is None:
+            arrival = people_the_world(world, cfg, state.rng.get("peopling"), voyages)
         state.tables["ancient_voyages"] = voyages   # prehistory: how far lands were first reached
         state.cells["arrival_year"] = arrival
         state.record_modes["arrival_year"] = "static"
@@ -208,6 +212,29 @@ def _climate_now(state):
 
 
 # ---------------------------------------------------------------- peopling
+def _arrival_from_finer_map(world, cfg, rng, voyages):
+    """On a coarse map, people the world on the reference-width map of the same world and
+    carry the arrival years over (the earliest in each coarse cell). Small islands, the
+    stepping stones of early seafarers, vanish on a coarse map, so chains that people crossed
+    would otherwise be uncrossable there. None if the finer map can't be had."""
+    import dataclasses
+
+    import worldgen
+
+    h, w = world.ocean.shape
+    f = int(round(cfg.reference_width / w))
+    if f < 2 or f * w != cfg.reference_width:
+        return None
+    try:
+        fine = worldgen.load_or_generate(dataclasses.replace(world.cfg, width=w * f), cfg.world_cache_dir)
+    except Exception:
+        return None
+    if fine.ocean.shape != (h * f, w * f):
+        return None
+    arrival = people_the_world(fine, cfg, rng, voyages)
+    return arrival.reshape(h, f, w, f).min(axis=(1, 3))
+
+
 def people_the_world(world, cfg, rng, voyages=None):
     """When people first arrived in each cell (simulation year; inf = never, by year 0).
 

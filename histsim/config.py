@@ -18,6 +18,9 @@ class SimConfig:
     # ------------------------------------------------- peopling (before year 0)
     out_of_homeland_year: int = -60_000 # when people first leave their homeland (simulation years)
     settled_by_year: int = -1_000       # by then nearly everywhere reachable has been reached
+    peopling_on_reference_map: bool = True  # on coarser maps, people the world on the reference-width
+                                        # map (small islands, stepping stones for early boats, survive)
+    world_cache_dir: str = "world_cache"  # where that finer map is cached
     max_sea_crossing_km: float = 300.0  # longest open-water crossing managed before year 0
     sea_crossing_difficulty_km: float = 50.0  # crossings get much slower beyond this distance from shore
     ancient_voyage_km: float = 1500.0   # rare ancient voyages settle large empty lands this close to settled land
@@ -159,7 +162,7 @@ class SimConfig:
     expand_ramp: float = 0.25           # ... fully from this much above it
     cohesion_gain: float = 0.02         # cohesion growth on frontiers with other peoples (per year)
     cohesion_loss: float = 0.004        # cohesion fading in a state's quiet core (per year)
-    overextension_people: float = 10_000_000.0  # ... twice as fast for a state this big, 3x at twice that
+    overextension_people: float = 20_000_000.0  # ... twice as fast for a state this big, 3x at twice that
     decision_years: int = 10            # rulers weigh war and alliances this often
     war_interval_years: float = 50.0    # typical wait before a clearly stronger state attacks
     war_margin: float = 0.2             # how much stronger (log ratio) a state must feel to attack
@@ -187,7 +190,7 @@ class SimConfig:
     secession_threshold: float = 1.9    # restlessness (distance / reach + culture gap, x weakness)
                                         # above which a region may break away
     rebellion_years: float = 500.0
-    collapse_cohesion: float = 0.12     # a big state whose cohesion falls below this falls apart
+    collapse_cohesion: float = 0.10     # a big state whose cohesion falls below this falls apart
     collapse_min_cells: int = 30        # ... if it has at least this many cells
     collapse_cells_per_successor: float = 30.0   # roughly one successor state per this many cells (2-8)     # typical wait before a restless region breaks away
     min_rebel_cells: int = 4            # smallest region that can break away

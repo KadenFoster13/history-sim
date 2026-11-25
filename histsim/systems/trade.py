@@ -72,6 +72,7 @@ class Trade(System):
         self.goods = {g: np.zeros(self.n, bool) for g in GOODS}    # goods arriving by trade
         state.tables["trade"] = self
         self.links = []
+        self.towns = np.zeros(0, np.int64)
         self._stats(state, 0, 0.0, 0.0)
 
     # ------------------------------------------------------------------ step
@@ -142,6 +143,7 @@ class Trade(System):
         self._goods(state, towns, tdist, src, dist)
         self._knowledge(state, tech, towns, link_a, link_b, volume)
         self.links = [(int(towns[a]), int(towns[b]), float(v)) for a, b, v in zip(link_a, link_b, volume)]
+        self.towns = towns                       # the trading towns when routes were last worked out
         self._stats(state, nl, float(volume.sum()), longest)
 
     def _costs(self, state, tech):

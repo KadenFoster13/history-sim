@@ -152,10 +152,11 @@ class TradeTests(unittest.TestCase):
         st = self.sim.state
         trade = st.tables["trade"]
         self.assertTrue(trade.links)
-        size = st.cells["settlement"].ravel()
+        towns = set(int(t) for t in trade.towns)     # (routes are worked out every 50 years)
         for a, b, v in trade.links:
             self.assertNotEqual(a, b)
-            self.assertGreaterEqual(size[a], st.config.trade_town_min)
+            self.assertIn(a, towns)
+            self.assertIn(b, towns)
             self.assertGreaterEqual(v, 0)
         t = st.cells["trade"]
         self.assertTrue((t >= 0).all())

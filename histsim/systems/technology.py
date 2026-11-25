@@ -114,7 +114,8 @@ class Technology(System):
             in_state, kingdom = own > 0, big[own]
         else:
             in_state = kingdom = np.zeros(len(idx), bool)
-        needs = {"people": np.ones(len(idx), bool), "farming": farming, "settled": settled,
+        smiths = (state.cells["tech"].ravel()[idx] & np.uint64(1 << INDEX["copper"])) != 0
+        needs = {"people": np.ones(len(idx), bool), "farming": farming, "settled": settled, "smiths": smiths,
                  "herds": cattle | horse, "cattle": cattle, "horse": horse, "towns": towns,
                  "state": in_state, "kingdom": kingdom}
         needs.update({k: v[idx] for k, v in self.static.items()})
@@ -206,8 +207,9 @@ class Technology(System):
             if not len(where):
                 continue
             weight = base[where] * np.maximum(contact[where], 1e-9) ** t.crowd
-            hazard = float(weight.sum()) * dt / (t.rarity * cfg.tech_years)
-            if rng.random() >= 1 - np.exp(-hazard):
+            hazard = float(weight.sum()) / (t.rarity * cfg.tech_years)      # per year
+            hazard = hazard / (1 + hazard * t.lag)          # never faster than its methods mature
+            if rng.random() >= 1 - np.exp(-hazard * dt):
                 continue
             pick = int(where[rng.choice(len(where), p=weight / weight.sum())])
             cell = int(idx[pick])

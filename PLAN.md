@@ -709,6 +709,65 @@ soon after writing (the discovery rule, step 5). Iron is now rarer to find (rari
 and coinage much rarer (250) since trade carries gold and silver. Runs take ~15% longer
 at 800 px (O1).
 
+**Step 5 as built (histsim 0.7.1, 2026-11-24): calibration.**
+- *Discovery takes time:* each technology has a `lag` (tech.py `LAG`), the least time its
+  methods take to mature once a place could find it; more people find it sooner, but never
+  faster than that (chance per year h / (1 + h x lag)). Writing 400 years, bureaucracy 600,
+  law 800, coinage and siegecraft 1,000, iron 1,500 and so on. So the technologies of rule
+  follow writing over centuries, as on Earth, instead of within decades, and capitals no
+  longer get the means to feed great cities too early.
+- *Iron is first smelted by smiths:* finding it needs people who already work copper (the
+  `smiths` need), so iron comes after copper and mostly after bronze.
+- *Big states hold longer:* overextension from 20 million people (was 10), collapse below
+  cohesion 0.10 (was 0.12).
+- Rarities of the later technologies brought back down now that the lag spaces them out.
+
+Worlds 31 and 22, 800 px, seeds 1-3, to 1 CE (averages across runs; single runs stray):
+
+| Measure | Phase 4 start (0.6.0) | 0.7.1 | Earth / aim |
+|---|---|---|---|
+| Writing, first (median) | ~3,600 BCE | ~3,000 BCE | ~3,200 BCE |
+| Bronze, first (mean) | ~3,030 BCE | ~2,970 BCE | ~3,300 BCE |
+| Iron, first (mean) | ~1,780 BCE (often before bronze) | ~1,920 BCE (after bronze on average) | ~1,200 BCE |
+| Bureaucracy / law / coinage (mean) | within ~300 years of writing | ~2,000 / ~2,570 / ~1,260 BCE | ~2,500 / ~1,800 / ~600 BCE |
+| People knowing bronze, 1 CE | ~14% | ~20-70% (with trade, 0.7.0) | |
+| Longest distance goods travel, 1 CE | - | 3,050-4,600 km | 2,000+ km |
+| Largest city, 3000 BCE / 1 CE | 285k / 715k | 63k / 263k | 30-100k / 0.2-1M |
+| Cities of 100,000+, 1 CE | 46 | 25 | 10-30 |
+| Towns of 2,000+, 1 CE | 136 | 1,575 (~7.7 per million) | 10+ per million |
+| Share in towns, 1 CE | 8% | 8% | 5-10% |
+| People in states, 1 CE | 82-93% | 25-80% (mean ~54%) | 50-85% |
+| State land changing owner per century | 25-30% | 4-15% | 5-15% |
+| Big states holding steady | 10-20% | 22-37% (mean ~34%) | about half |
+| Largest state, 1 CE (peak since 5000 BCE) | 2-7% (8-15%) | 2-10% (2-23%), mean ~5.5% | 8-30% |
+| Median years as an empire | 175-1,225 | 425-1,075 | 100-600 (Earth 2-4 centuries) |
+| World population, 1 CE | 111-328M | 90-298M (mean ~204M) | 100-500M |
+
+Phase 4 leaves short: the largest state at 1 CE (big states reach 10-23% at their peak but
+break up again; trade and the technology of rule have not been enough, so phases 5-6:
+rulers, dynasties and faiths binding peoples, nomad conquests), how often states hold
+steady (a third, not half: phase 5's dynasties), and empires lasting a little long. Riding
+and chariots almost never appear: horses are seldom tamed (a farming question for later).
+
+**400 vs 800 px.** The 400 px runs (worlds 31 and 22, seeds 1-3) come out about half as
+populous at 1 CE (~112M against ~204M) and everything happens later: writing ~1,250 BCE
+(median) against ~3,000, the largest city at 1 CE ~224k against ~263k. The gap was already
+there at 0.6.0 (~127M against ~205M), so it comes from phase 3-4 rules (intensification,
+towns or states on coarse cells), not from this step. 400 px is the quick-iteration size,
+not the size runs are judged on; finding where the gap comes from is left as a follow-up.
+
+*Looked into (histsim 0.7.2):* most of it was world 22's peopling. Its stepping-stone
+islands vanish on the 400 px map, so only ~35% of its land was reached by 10,000 BCE (94% at
+800 px) and runs started with ~1.8M people instead of ~5.7M. On coarser maps the peopling
+pre-pass now runs on the reference-width (800 px) map of the same world and carries the
+earliest arrival in each coarse cell over (`peopling_on_reference_map`; ~1 s; 800 px runs
+unchanged). World 22 at 400 px now starts as at 800 px. What remains (1 CE, seeds 1-3): ~145M
+against ~204M at 800 px (was ~112M); world 22 -23% with the same share of land farmed, world
+31 -39% (noisy: one seed moved from 200M to 80M from the small change of path alone). The
+rest grows from farming starting and spreading more slowly on coarse cells (~40% fewer
+farmers by 4000 BCE): a cell-by-cell front moves at a different speed on bigger cells.
+Left for later; judge runs at 800 px.
+
 **Viewer and graphs.** A Technology map mode (the age each cell is in: stone, copper,
 bronze, iron, with writing and other marks), a trade overlay (routes by volume), hover
 lines for known technologies and trade; graphs of each technology's share of people,
@@ -752,6 +811,7 @@ Plus the existing checks (population, cities, farming, wars) and 400 vs 800 px.
    **Built 2026-11-24 (histsim 0.7.0)**, see "Step 4 as built" above.
 5. Calibration on worlds 31 and 22 at 800 px, 400 vs 800 px, docs and decision log.
    Versions: histsim 0.6 (technology), 0.7 (trade).
+   **Built 2026-11-24 (histsim 0.7.1)**, see "Step 5 as built" above. Phase 4 is done.
 
 **Step 1 as built (histsim 0.6.0).** `histsim/tech.py` holds 22 technologies, each with
 prerequisites, `needs` (to use it, so to take it up from neighbours), `finds` (needed as
@@ -967,7 +1027,7 @@ Each phase ends with something to run, watch and graph.
 | 2 | Cultures and generated languages; towns and cities; the live viewer with map modes | Cultures splitting, named places, the first cities |
 | 3 | States: chiefdoms to empires, territory, borders, administration; diplomacy and war | Borders forming, wars and conquests, empires rising and falling |
 | O0 (built) | Benchmark and per-system timings; easy speed wins (climate cadence, domestication) | Run time and its breakdown in each run's graphs |
-| 4 | Technology web and its spread (including canals: `canal_irrigation`); economy, resources and trade routes | Bronze and iron ages emerging, trade networks |
+| 4 (built) | Technology web and its spread (including canals); technology of rule and war; states growing in bursts; farming technology; fed cities and a ladder of towns; economy, resources and trade routes | Bronze and iron ages emerging, trade networks |
 | O1 | Optimization pass: land-only cells, float32, numba kernels, incremental summaries (section 4) | The same histories, ~5x faster |
 | 5 | Religions and ideologies; key figures and dynasties; the chronicle | Faiths founded and spreading, named rulers, a written history |
 | 6 | Disease, epidemics, climate shocks, disasters; nomads and migrations; collapse cycles | Plagues, droughts, steppe invasions, dark ages |
@@ -1039,6 +1099,8 @@ Each phase ends with something to run, watch and graph.
 | 2026-11-23 | Empires relative to their time (histsim 0.5.1): the bar rises with the square root of world population (3.5 million people when the world holds 100 million; ~1.9 million at 30 million, ~6 million at 300 million), mostly-foreign states count from 80% of it (was 50%), and an empire stays one down to half the bar (was a quarter); only titles and counts change, not the history. 800 px, worlds 31 and 22 to 1 CE: 24-76 -> 15-22 empires (before intensification 14-21; Earth roughly 20-30), first empire 4450-2625 BCE. Time spent as an empire varies widely by seed (median 175-1,225 years; Earth 2-4 centuries): a collapse question, left for the phase 3 re-check |
 | 2026-11-23 | Farming intensification (histsim 0.5.0): farming begins as thin shifting fields and becomes settled, intensive farming where farmers grow dense (Boserup: pace grows with people per km2 once the land fills up), up to 6x on rain-fed fields and 30x on floodplains and dry irrigated land, x1.5 for paddies; faster in states, lost when land empties or is fought over; replaces the flat state food bonus. 800 px, 1 CE: world population 72-76M -> 111-328M, densest farmland ~3 -> 38-63/km2, off-river farmland thin (median 0.7/km2) with cores of 4-12/km2, largest town ~60k -> 0.43-0.84M, urban share ~2.7% -> 7-9%. Empires doubled (phase 3 re-check) |
 | 2026-11-23 | Peopling the same at any map width (histsim 0.4.2): the homeland is drawn on a fixed grid of ~400 km blocks, sea crossings are measured to the shore's edge and coarse travel blocks are land only when mostly land. This moves the homeland on most seeds, so every history differs from 0.4.1, at 800 px too. Worldgen 1.5.1: Enhance keeps the world's river courses (big rivers used to vanish when the view's edge fell near them) |
+| 2026-11-24 | histsim 0.7.2: on coarser maps the peopling pre-pass runs on the 800 px map of the same world (small stepping-stone islands survive), fixing world 22's slow peopling at 400 px; 400 px runs now ~145M at 1 CE against ~204M at 800 px (was ~112M); the rest is slower farming spread on coarse cells, left for later |
+| 2026-11-24 | Phase 4 done (histsim 0.7.1, step 5 calibration): technologies take a least time to mature once a place could find them (later technologies of rule now follow writing over centuries), iron needs copper smiths, big states hold longer (overextension from 20M, collapse below 0.10). 800 px averages near Earth for first dates, cities and trade; largest state at 1 CE still ~5.5% and states hold steady a third of the time (phases 5-6). 400 px runs come out about half as populous and later (a gap since phase 3-4, to investigate) |
 | 2026-11-24 | Phase 4 step 4 built (histsim 0.7.0): trade routes between towns over land, rivers and coasts (gravity flows along the cheapest chains of links), copper, tin and gold or silver carried up to 1,500 (km x cost), knowledge carried along routes, busy places grow and are fed more; Trade map mode. 800 px: goods travel 3,200-4,700 km by 1 CE, bronze known by 21-71% of people, largest state ~8% and largest city ~330k at 1 CE; early cities too big again (~130k at 3000 BCE) through early technology of rule (step 5); runs ~15% longer. Added REFERENCES.md |
 | 2026-11-24 | Phase 4 step 3 built (histsim 0.6.2): canals, plough, manuring and terraces per cell; places capped by what can be brought to them to eat (transport and the technology of rule); a rank-size ladder of smaller towns counted per cell. 800 px: largest city 285k -> 56k at 3000 BCE, 715k -> 196k at 1 CE; cities of 100,000+ at 1 CE 46 -> 12; towns of 2,000+ 136 -> 1,752 |
 | 2026-11-24 | Towns and cities to be reworked in phase 4 steps 3-4: early cities far too big (largest ~285k at 3000 BCE vs Uruk ~40-80k), too many of 100,000+, far too few small towns (top-heavy, not rank-size); urban share and the largest city at 1 CE fit. Plan: capitals capped by the means to feed them (transport and the technology of rule), a rank-size ladder of places with small towns counted per cell, towns on trade routes. Counts per million people barely change with map size |
