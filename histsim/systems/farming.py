@@ -52,8 +52,8 @@ INDEPENDENT_KM = 1000      # a domestication this far from any farming counts as
 
 
 @njit(cache=True)
-def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, slope, arable_eff,
-                  consts):
+def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, flood_dry, slope,
+                  arable_eff, consts):
     """The intensification ceiling of one cell (see Farming.ceiling)."""
     steep_slope, rainfed, plough_c, manure_c, irrigated, paddy_c = (consts[0], consts[1], consts[2], consts[3],
                                                                     consts[4], consts[5])
@@ -63,7 +63,18 @@ def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryn
     terraces = (t >> np.uint64(bits[1])) & one
     plough = (t >> np.uint64(bits[2])) & one
     manure = (t >> np.uint64(bits[3])) & one
-    water = min(max(flood[i] / 0.4, 0.0), 1.0)
+    # A flood waters fields where rain is short (the Nile, the Euphrates); where rain is
+    # plenty (the Amazon, the Congo) it adds silt but no water worth having, unless the
+    # crop is paddy rice, which is water control in any climate. Paddies are works (bunds,
+    # levelled fields, channels): they need the canals technology (without a technology
+    # system, they are assumed).
+    paddy = False
+    if wet >= 0 and (canals or not has_tech):
+        paddy = ((tamed[i] >> np.uint32(wet)) & np.uint32(1)) != 0
+    use = flood_dry[i]
+    if paddy and suit_wet[i] > use:
+        use = min(suit_wet[i], 1.0)
+    water = min(max(flood[i] / 0.4, 0.0), 1.0) * use
     dug = irrigable[i] * dryness[i] * canals
     if dug > water:
         water = dug
@@ -71,23 +82,23 @@ def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryn
     quality = min(max(arable_eff[i] / 0.6, 0.3), 1.0) * min(max(1 - steep, 0.3), 1.0)
     rain = (rainfed - 1) * (1 + plough_c * plough + manure_c * manure)
     top = (rain + (irrigated - 1 - rain) * water) * quality
-    if wet >= 0 and (tamed[i] >> np.uint32(wet)) & np.uint32(1):
+    if paddy:
         top = top * (1 + (paddy_c - 1) * min(max(suit_wet[i], 0.0), 1.0))
     return 1 + top
 
 
 @njit(cache=True, parallel=True)
-def _ceiling_kernel(tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, slope, arable_eff,
-                    consts, out):
+def _ceiling_kernel(tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, flood_dry, slope,
+                    arable_eff, consts, out):
     for i in prange(out.shape[0]):
-        out[i] = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, slope,
-                               arable_eff, consts)
+        out[i] = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, flood_dry,
+                               slope, arable_eff, consts)
 
 
 @njit(cache=True, parallel=True)
 def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
-                     tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c, slope, arable_eff,
-                     consts, intensity, has_intensity, arable, flood, grazing, area,
+                     tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c, flood_dry, slope,
+                     arable_eff, consts, intensity, has_intensity, arable, flood, grazing, area,
                      farmer_density, herder_density, flood_yield, cap, mode):
     for i in prange(land.shape[0]):
         if not land[i]:
@@ -97,7 +108,7 @@ def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
         farm = farmer_density * crops * arable[i] * weather * (1 + flood_yield * flood[i])
         if has_intensity:
             ceil = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c,
-                                 slope, arable_eff, consts)
+                                 flood_dry, slope, arable_eff, consts)
             farm = farm * (1 + (ceil - 1) * intensity[i])
         herding = herder_density * min(herd[i], 2.0) * grazing[i] * weather
         a = max(area[i], 1e-6)
@@ -340,11 +351,26 @@ class Farming(System):
                             * (0.15 + self.arable_eff) ** 1.5 * patchy
                             / (1 + world.slope_m_per_km / 15)).astype(np.float32)
         self.landmass = world.landmass_id
+        from worldgen import BIOME_ID
+        self._rainforest = np.isin(world.biome, [BIOME_ID["Tropical rainforest"], BIOME_ID["Temperate rainforest"]])
         self.km_per_px = world.grid.km_per_px
         self.cos_lat = np.maximum(np.cos(np.radians(world.grid.lat[:, 0])), 0.05)
         self.slope = world.slope_m_per_km.astype(np.float32)
         # Canals transform dry land; where rain already waters the fields they add little.
         self.dryness = np.clip((1000 - world.precip_mm) / 600, 0, 1).astype(np.float32)
+        # How much a flood's water is worth, by aridity (rain / what could evaporate): all of
+        # it in deserts and dry steppe (the Nile, Mesopotamia, the Indus), none where rain
+        # meets the need (the Danube, the Amazon). See _ceiling_cell.
+        evap = getattr(world.cfg, "evaporation_per_degree_mm", 55.0) * np.maximum(world.temperature_c, 1.0)
+        aridity = world.precip_mm / evap
+        self.flood_dry = np.clip((cfg.flood_water_none_aridity - aridity)
+                                 / (cfg.flood_water_none_aridity - cfg.flood_water_full_aridity), 0, 1
+                                 ).astype(np.float32)
+        # A flood renews the soil every year, so floodplain fields are cropped every year from
+        # the start (no fallow): as productive as fully intensified rain-fed fields. As a share
+        # of the irrigated ceiling, the least intensity a farmed floodplain has.
+        self.flood_floor = (np.clip(self.flood / 0.4, 0, 1) * self.flood_dry
+                            * (cfg.rainfed_ceiling - 1) / (cfg.irrigated_ceiling - 1)).astype(np.float32)
         self.wet_grain = next((i for i, sp in enumerate(SPECIES) if sp.key == "wet_grain"), None)
         state.add_layer("tamed", np.uint32, record="changes")   # bit i set = uses SPECIES[i]
         state.add_layer("intensity", np.float32, record="snapshot")
@@ -407,10 +433,29 @@ class Farming(System):
                          np.ascontiguousarray(forage, np.float32).ravel(), precip.ravel(), cold.ravel(),
                          *self._ceiling_inputs(state),
                          np.zeros(1, np.float32) if intensity is None else intensity.ravel(),
-                         intensity is not None, self.arable.ravel(), self.flood.ravel(), self.grazing.ravel(),
+                         intensity is not None, self._cleared_arable(state).ravel(), self.flood.ravel(),
+                         self.grazing.ravel(),
                          self.area.ravel(), cfg.farmer_density, cfg.herder_density, cfg.flood_yield,
                          cap.ravel(), mode.ravel())
         return cap, mode
+
+    def _cleared_arable(self, state):
+        """Farmland share people can keep in crops: in rainforest, felling and keeping back
+        the forest with stone tools holds it to (1 - rainforest_clearing) of the land, until
+        they know iron (steel axes fell trees many times faster; Amazonia, with no metal
+        tools, stayed thinly farmed away from its rivers; iron came with farmers into the
+        Congo forest). Rechecked when the iron-using area changes."""
+        cfg = state.config
+        if not self._rainforest.any() or cfg.rainforest_clearing <= 0:
+            return self.arable
+        iron = self.knows(state, "iron") if "tech" in state.cells else np.zeros(state.shape, bool)
+        key = int(np.count_nonzero(iron & self._rainforest))
+        if getattr(self, "_cleared_key", None) != key:
+            self._cleared_key = key
+            slow = self._rainforest & ~iron
+            self._cleared = np.where(slow, self.arable * (1 - cfg.rainforest_clearing), self.arable
+                                     ).astype(np.float32)
+        return self._cleared
 
     def knows(self, state, key):
         """Cells whose people know a technology (False everywhere without the technology system)."""
@@ -441,7 +486,8 @@ class Farming(System):
         consts = np.array([cfg.steep_slope, cfg.rainfed_ceiling, cfg.plough_ceiling, cfg.manuring_ceiling,
                            cfg.irrigated_ceiling, cfg.paddy_ceiling], np.float64)
         return (tech, len(tech) > 1, bits, state.cells["tamed"].ravel(), wet, suit_wet, self.irrigable.ravel(),
-                self.dryness.ravel(), self.flood.ravel(), self.slope.ravel(), self.arable_eff.ravel(), consts)
+                self.dryness.ravel(), self.flood.ravel(), self.flood_dry.ravel(), self.slope.ravel(),
+                self.arable_eff.ravel(), consts)
 
     def _intensify(self, state):
         """Crowded farmland is worked harder; emptied or abandoned land lets it go."""
@@ -464,6 +510,8 @@ class Farming(System):
                           own if own is not None else np.zeros(pop.shape, np.uint16), own is not None,
                           FARMING, dt, cfg.intensify_pressure, cfg.intensify_density, cfg.intensity_neighbour,
                           cfg.state_intensify, cfg.intensify_years, cfg.intensity_start, cfg.intensity_decay_years)
+        farmed = (mode == FARMING) & (pop > 0)
+        np.maximum(intensity, np.where(farmed, self.flood_floor, 0), out=intensity)
 
     def _present(self, tamed):
         bits = np.bitwise_or.reduce(tamed.ravel()) if tamed.size else 0

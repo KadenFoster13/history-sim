@@ -7,7 +7,7 @@
     sim.run(until=12_000)
     recorder.close()
 """
-__version__ = "0.7.8"
+__version__ = "0.7.9"
 
 import os as _os
 

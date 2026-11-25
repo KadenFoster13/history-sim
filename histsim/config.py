@@ -38,7 +38,7 @@ class SimConfig:
     forager_growth: float = 0.002       # yearly growth rate where there's room (falls to 0 at capacity)
 
     # ----------------------------------------------------------- farming
-    farmer_density: float = 1.2         # people per km2 on good land with a mature early crop package, farmed
+    farmer_density: float = 1.6         # people per km2 on good land with a mature early crop package, farmed
                                         # the first way: shifting (slash-and-burn) fields with long fallows
     herder_density: float = 0.6         # people per km2 living off herds on open grazing land
     farmer_growth: float = 0.004        # yearly growth rate where there's room
@@ -72,6 +72,9 @@ class SimConfig:
     manuring_ceiling: float = 0.3       # ... and with manuring and rotation
     steep_slope: float = 80.0           # m/km at which farmland is worth least (twice as steep with terraces)
     irrigated_ceiling: float = 30.0     # ... a floodplain, or dry irrigable land under a state (canals)
+    flood_water_full_aridity: float = 0.3  # a flood's water counts fully where rain / evaporation is below this,
+    flood_water_none_aridity: float = 1.0  #   not at all above this (it still brings silt; paddies always use it)
+    rainforest_clearing: float = 0.5   # share of rainforest farmland stone tools can't keep cleared (until iron)
     paddy_ceiling: float = 1.5          # ... and this much more where the rice-like grain grows well
     intensify_years: float = 2500.0     # time scale of intensification under full pressure
     intensify_pressure: float = 0.6     # it starts once people reach this share of what the land feeds
