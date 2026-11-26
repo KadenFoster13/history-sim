@@ -154,14 +154,16 @@ class DynamicsTests(unittest.TestCase):
         st.cells["population"][:] = np.where(cells, 0.1 * cap, 0)    # emptied
         for _ in range(100):
             farming._intensify(st)
-        self.assertLess(float(intensity[cells].mean()), crowded / 2)
+        # (Flood-renewed floodplain fields stay cropped every year while anyone farms them.)
+        dry = cells & (farming.flood_floor == 0)
+        self.assertLess(float(intensity[dry].mean()), crowded / 2)
         # Thin farming stays shifting: few people per km2 barely intensify.
         intensity[:] = 0
         st.cells["population"][:] = np.where(cells, 0.95 * cap / 20, 0)
         st.cells["capacity"] = cap / 20
         for _ in range(int(3000 / cfg.step_years)):
             farming._intensify(st)
-        self.assertLess(float(intensity[cells].mean()), crowded / 3)
+        self.assertLess(float(intensity[dry].mean()), crowded / 3)
         # Intensity multiplies what farmland feeds.
         st.cells["population"][:] = np.where(cells, 0.95 * cap, 0)
         forage = st.cells["forager_capacity"]

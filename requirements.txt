@@ -1,4 +1,4 @@
-# The world generator, installed from GitHub at version 1.6.3 (the version this
+# The world generator, installed from GitHub at version 1.6.4 (the version this
 # simulator was written for). [fast] adds numba, which speeds up river routing.
 # To work on the generator and the simulator together, use requirements-dev.txt instead.
-worldgen[fast] @ git+https://github.com/KadenFoster13/world_generator.git@v1.6.3
+worldgen[fast] @ git+https://github.com/KadenFoster13/world_generator.git@v1.6.4

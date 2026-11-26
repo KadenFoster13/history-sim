@@ -38,11 +38,12 @@ class SimConfig:
     forager_growth: float = 0.002       # yearly growth rate where there's room (falls to 0 at capacity)
 
     # ----------------------------------------------------------- farming
-    farmer_density: float = 1.4         # people per km2 on good land with a mature early crop package, farmed
+    farmer_density: float = 1.0         # people per km2 on good land with a mature early crop package, farmed
                                         # the first way: shifting (slash-and-burn) fields with long fallows
     herder_density: float = 0.6         # people per km2 living off herds on open grazing land
     farmer_growth: float = 0.004        # yearly growth rate where there's room
-    crop_maturity_years: float = 2500.0 # years for a newly tamed crop to reach full yield (x difficulty)
+    crop_maturity_years: float = 2500.0 # years for a newly tamed crop to reach full yield (x sqrt(difficulty))
+    latitude_adaptation: float = 0.05   # a crop moved north or south loses this share of its yield per degree
 
     # Domestication: chance per year for each suitable, crowded forager cell, before
     # adjusting for how hard the species is to tame and how crowded the cell is.
@@ -61,7 +62,7 @@ class SimConfig:
     crop_exchange_rate: float = 0.0005  #   at this yearly chance (x how well it grows there),
     crop_exchange_every: int = 100      #   checked this often (years)
     farming_advantage: float = 2.5      # foragers take up farming readily once it would feed this many
-    frontier_floor: float = 0.04        #   times more people than foraging (less: this share of the pace)
+    frontier_floor: float = 0.12        #   times more people than foraging (less: this share of the pace)
     flood_yield: float = 1.0            # floodplain harvests up to (1 + this) times others (yearly silt)
     canal_irrigation: float = 0.0       # canals everywhere, 0..1 (for tests; otherwise canals are dug
                                         # where people know them: the canals technology)
@@ -70,7 +71,7 @@ class SimConfig:
     # (shorter fallow, ploughs, manure, terraces, irrigation), so old farmland feeds many
     # times more people than new. `intensity` (0..1) per cell multiplies what farmland
     # feeds, up to its ceiling.
-    rainfed_ceiling: float = 5.5        # most a rain-fed field can be intensified (x) with the hoe,
+    rainfed_ceiling: float = 9.0        # most a rain-fed field can be intensified (x) with the hoe,
     plough_ceiling: float = 0.3         # ... (x - 1) this much more with the plough,
     manuring_ceiling: float = 0.3       # ... and with manuring and rotation
     steep_slope: float = 80.0           # m/km at which farmland is worth least (twice as steep with terraces)
@@ -82,6 +83,7 @@ class SimConfig:
     intensify_years: float = 2500.0     # time scale of intensification under full pressure
     intensify_pressure: float = 0.6     # it starts once people reach this share of what the land feeds
     intensify_density: float = 2.0      # ... at full pace with this many people per km2 (faster with more, up to 3x)
+    intensify_floor: float = 0.5        # ... and at least this pace (x) where the land is full, however thin
     intensity_start: float = 0.1        # how slowly it begins (growth ~ this + intensity: compounding)
     intensity_neighbour: float = 1.0    # faster next to more intensive land (methods spread)
     state_intensify: float = 1.0        # faster inside a state (order, works, markets): x(1 + this)

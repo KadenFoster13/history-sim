@@ -129,7 +129,7 @@ def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
 @njit(cache=True, parallel=True)
 def _intensify_kernel(intensity, pop, cap, mode, area, own, has_own, farming_mode, dt, intensify_pressure,
                       intensify_density, intensity_neighbour, state_intensify, intensify_years, intensity_start,
-                      decay_years):
+                      decay_years, push_floor):
     h, w = intensity.shape
     old = intensity.copy()
     for yy in prange(h):
@@ -144,7 +144,10 @@ def _intensify_kernel(intensity, pop, cap, mode, area, own, has_own, farming_mod
             if farming:
                 filling = min(max((pressure - intensify_pressure) / 0.1 + 0.5, 0.0), 1.0)
                 density = p / max(area[y, x], 1e-6)
-                push = filling * min(max(density / intensify_density, 0.0), 3.0)
+                # Denser farmland intensifies faster; land that is full but thin still does,
+                # slowly (push_floor): Andean and Mesoamerican farmers built terraces and
+                # raised fields without ever being as dense as the Ganges.
+                push = filling * min(max(density / intensify_density, push_floor), 3.0)
                 lead = 0.0
                 for n in (old[y, x + 1 if x < w - 1 else 0], old[y, x - 1 if x > 0 else w - 1],
                           old[down, x], old[up, x]):
@@ -312,6 +315,9 @@ class Farming(System):
         land = ~world.ocean & ~world.lake
         # Where each species can be kept, once tamed.
         self.suit = world.species_suitability.astype(np.float32).copy()
+        # Crops are sown for a season: rice and maize in the warm half of the year (Japan,
+        # Korea, the American corn belt), winter wheat in the cool half (the Mediterranean).
+        self.suit = np.maximum(self.suit, _seasonal_suitability(world, self.is_crop, land))
         for i, sp in enumerate(SPECIES):
             if sp.key in TSETSE_SENSITIVE:
                 self.suit[i][world.tsetse > cfg.tsetse_block] = 0
@@ -350,14 +356,21 @@ class Farming(System):
         river = band(np.clip(np.log10(np.maximum(flow, 1) / 100) / 1.5, 0, 1), self.scale)  # 100 m3/s -> 0, ~3,000 -> 1
         coast = np.where(land, band(touches(world.ocean), self.scale), 0)
         self.corridor = (river > 0.2 / max(self.scale, 1)) | (coast > 0)
+        self.coastal = coast > 0
         patchy = np.exp(0.8 * fbm(Perlin3(world.cfg.seed * 7919 + state.seed * 31 + 271828), world.grid.xyz, 8, 3))
         self.spread_ease = ((1 + cfg.river_corridor * river + cfg.coast_corridor * coast)
                             * (0.15 + self.arable_eff) ** 1.5 * patchy
                             / (1 + world.slope_m_per_km / 15)).astype(np.float32)
+        # Herds go where there is grazing, not farmland: herders spread fast across open
+        # steppe (the Yamnaya across the Pontic-Caspian steppe, herders into Mongolia).
+        self.herd_ease = ((1 + cfg.river_corridor * river + cfg.coast_corridor * coast)
+                          * (0.15 + 0.85 * self.grazing) ** 1.5 * patchy
+                          / (1 + world.slope_m_per_km / 15)).astype(np.float32)
         self.landmass = world.landmass_id
         from worldgen import BIOME_ID
         self._rainforest = np.isin(world.biome, [BIOME_ID["Tropical rainforest"], BIOME_ID["Temperate rainforest"]])
         self.km_per_px = world.grid.km_per_px
+        self.dpp = world.grid.dpp
         self.cos_lat = np.maximum(np.cos(np.radians(world.grid.lat[:, 0])), 0.05)
         self.slope = world.slope_m_per_km.astype(np.float32)
         # Canals transform dry land; where rain already waters the fields they add little.
@@ -531,7 +544,8 @@ class Farming(System):
         _intensify_kernel(intensity, pop, cap, mode, self.area,
                           own if own is not None else np.zeros(pop.shape, np.uint16), own is not None,
                           FARMING, dt, cfg.intensify_pressure, cfg.intensify_density, cfg.intensity_neighbour,
-                          cfg.state_intensify, cfg.intensify_years, cfg.intensity_start, cfg.intensity_decay_years)
+                          cfg.state_intensify, cfg.intensify_years, cfg.intensity_start, cfg.intensity_decay_years,
+                          cfg.intensify_floor)
         farmed = (mode == FARMING) & (pop > 0)
         np.maximum(intensity, np.where(farmed, self.flood_floor, 0), out=intensity)
 
@@ -553,7 +567,7 @@ class Farming(System):
         self._intensify(state)
 
         # Crops improve over the centuries after taming.
-        gains = (1 - np.exp(-dt / (cfg.crop_maturity_years * self.difficulty))).astype(np.float32)
+        gains = (1 - np.exp(-dt / (cfg.crop_maturity_years * np.sqrt(self.difficulty)))).astype(np.float32)
         _mature_kernel(tamed.ravel(), maturity.reshape(self.n, -1), gains)
 
         tamed_flat = tamed.ravel()
@@ -574,7 +588,7 @@ class Farming(System):
                 # the effort: food plants and animals before fibre.
                 hazard = (cfg.domestication_rate * self.range_factor[i] * self.scale ** 2 * holocene
                           * self.suit[i].ravel()[cells]
-                          * crowding.ravel()[cells] ** 3 / sp.difficulty ** 2 * (0.15 + sp.food)
+                          * crowding.ravel()[cells] ** 3 / sp.difficulty * (0.15 + sp.food)
                           * np.where(farms_anything.ravel()[cells], cfg.farmer_domestication_bonus, 1.0))
                 # One origin per species per step at most: whether any cell tames it (the
                 # chance that at least one does), and if so which (in proportion to each
@@ -622,50 +636,86 @@ class Farming(System):
         `crop_exchange_km` keep it: seeds and stock pass between farming peoples by contact
         and trade far faster than farming itself spreads (wheat and barley reached Egypt's
         farmers across Sinai by ~5500 BCE, wheat reached China by ~2500 BCE, sorghum crossed
-        to India). Unlike the frontier, this needs no chain of good land in between."""
-        from scipy.ndimage import binary_dilation
+        to India). Unlike the frontier, this needs no chain of good land in between.
+
+        Islands where hardly anyone farms yet are settled the same way by coastal farmers
+        within reach, by boat: farming crosses straits with people in boats, as
+        colonists, whether or not the foragers there would take it up (Yayoi farmers from
+        Korea to Japan, Austronesians through Indonesia, Neolithic farmers to Britain),
+        which the frontier, on land, never can."""
         cfg = state.config
         tamed = state.cells["tamed"]
-        farms = (tamed != 0) & (state.cells["population"] > 0)
+        people = state.cells["population"] > 0
+        farms = (tamed != 0) & people
         if not farms.any():
             return
         radius = cfg.crop_exchange_km / self.km_per_px          # in rows (km north-south)
-        reach = int(np.ceil(radius))
-        if reach < 1:
+        if radius < 1:
             return
-        h = tamed.shape[0]
         maturity = state.cells["maturity"]
+        # Land masses where hardly anyone farms or herds yet (under a quarter of the cells
+        # with people), and who can sail there.
+        lm = self.landmass.ravel()
+        n_lm = int(lm.max()) + 1
+        share = (np.bincount(lm, weights=farms.ravel(), minlength=n_lm)
+                 / np.maximum(np.bincount(lm, weights=people.ravel(), minlength=n_lm), 1))
+        unfarmed = people & ~farms & (share[self.landmass] < 0.25) & (self.landmass > 0)
+        sailors = self.coastal              # paddled boats cross a strait; sails aren't needed
         for i in np.flatnonzero(self._present(tamed)):
             bit = np.uint32(1 << i)
             here = (tamed & bit) != 0
-            cand = farms & ~here & (self.suit[i] >= 0.5)
-            if not cand.any():
-                continue
-            # Within reach in km: columns are narrower toward the poles, so the reach is
-            # an ellipse wider in columns, worked out in bands of latitude.
-            near = np.zeros_like(here)
-            for r0 in range(0, h, 16):
-                r1 = min(r0 + 16, h)
-                if not cand[r0:r1].any():
-                    continue
-                cos = float(max(self.cos_lat[(r0 + r1) // 2], 0.2))
-                wide = min(int(np.ceil(radius / cos)), here.shape[1] // 2)
-                yy, xx = np.ogrid[-reach:reach + 1, -wide:wide + 1]
-                shape = (yy / radius) ** 2 + (xx * cos / radius) ** 2 <= 1
-                a0, a1 = max(r0 - reach, 0), min(r1 + reach, h)
-                padded = np.pad(here[a0:a1], ((0, 0), (wide, wide)), mode="wrap")   # the map wraps east-west
-                grown = binary_dilation(padded, structure=shape)[:, wide:-wide]
-                near[r0:r1] = grown[r0 - a0:r1 - a0]
-            cand &= near
-            idx = np.flatnonzero(cand)
+            good = self.suit[i] >= 0.5
+            cand = farms & ~here & good
+            if cand.any():
+                near = self._within(here, cand, radius)
+                # By sea, coast to coast, contact reaches twice as far (the Yellow Sea, the
+                # Mediterranean, the Indian Ocean).
+                far = cand & ~near & self.coastal
+                if far.any() and (here & self.coastal).any():
+                    near |= self._within(here & self.coastal, far, 2 * radius) & self.coastal
+                cand &= near
+            isle = unfarmed & good
+            if isle.any() and (here & sailors).any():
+                isle &= self._within(here & sailors, isle, radius)
+            else:
+                isle = np.zeros_like(cand)
+            idx = np.flatnonzero(cand | isle)
             if not len(idx):
                 continue
             chance = 1 - np.exp(-cfg.crop_exchange_rate * cfg.crop_exchange_every * self.suit[i].ravel()[idx])
             take = idx[rng.random(len(idx)) < chance]
             if len(take):
                 tamed.ravel()[take] |= bit
-                maturity[i].ravel()[take] = 0.9 * float(np.median(maturity[i][here]))
+                mat = 0.9 * float(np.median(maturity[i][here]))
+                if self.is_crop[i]:
+                    # Bred for where it is mostly grown: far north or south of that it must be
+                    # bred again (maize took millennia to suit the Mississippi valley).
+                    home_row = float(np.median(np.nonzero(here)[0]))
+                    rows = take // tamed.shape[1]
+                    mat = mat * np.clip(1 - cfg.latitude_adaptation * np.abs(rows - home_row) * self.dpp, 0, 1)
+                maturity[i].ravel()[take] = mat
                 self._first_landmass_events(state, i, take)
+
+    def _within(self, src, where, radius):
+        """Cells of `where` within `radius` rows' distance (in km, so wider in columns toward
+        the poles) of any cell of `src`; worked out in bands of latitude, wrapping east-west."""
+        from scipy.ndimage import binary_dilation
+        h, w = src.shape
+        reach = int(np.ceil(radius))
+        near = np.zeros_like(src)
+        for r0 in range(0, h, 16):
+            r1 = min(r0 + 16, h)
+            if not where[r0:r1].any():
+                continue
+            cos = float(max(self.cos_lat[(r0 + r1) // 2], 0.2))
+            wide = min(int(np.ceil(radius / cos)), w // 2)
+            yy, xx = np.ogrid[-reach:reach + 1, -wide:wide + 1]
+            shape = (yy / radius) ** 2 + (xx * cos / radius) ** 2 <= 1
+            a0, a1 = max(r0 - reach, 0), min(r1 + reach, h)
+            padded = np.pad(src[a0:a1], ((0, 0), (wide, wide)), mode="wrap")
+            grown = binary_dilation(padded, structure=shape)[:, wide:-wide]
+            near[r0:r1] = grown[r0 - a0:r1 - a0]
+        return near
 
     def _spread(self, state, i, pace, forage, people, farms_anything, rng, front=None):
         """One round of species i spreading to neighbouring cells (worked out only on the
@@ -687,12 +737,18 @@ class Farming(System):
                 self._nbr = neighbour_index(here.shape)
             mat, held = maturity[i].ravel(), here.ravel()
             best = np.zeros(len(t), maturity.dtype)
+            w = here.shape[1]
             for k in range(4):
                 nb = self._nbr[k][t]
-                best = np.maximum(best, np.where(held[nb], mat[nb], 0))
+                # A crop moved north or south must be bred again for the new seasons and day
+                # lengths (it spread east-west far more easily: Diamond's continental axes).
+                fit = 1.0
+                if self.is_crop[i]:
+                    fit = np.clip(1 - cfg.latitude_adaptation * np.abs(t // w - nb // w) * self.dpp, 0, 1)
+                best = np.maximum(best, np.where(held[nb], mat[nb] * fit, 0))
             welcome = self._welcome_at(cfg, i, t, best, forage, farms_anything)
             chance = 1 - np.exp(-cfg.spread_rate * pace * dt * (near_t / 4) * (0.5 + self.suit[i].ravel()[t])
-                                * self.spread_ease.ravel()[t] * welcome)
+                                * (self.spread_ease if self.is_crop[i] else self.herd_ease).ravel()[t] * welcome)
             take = t[draws_at(rng, here.size, t) < chance]
             if len(take):
                 tamed.ravel()[take] |= np.uint32(1 << i)
@@ -753,6 +809,8 @@ class Farming(System):
             if self.landmass[tr, tc] != self.landmass[r, c] or self.suit[i][tr, tc] < 0.5:
                 continue
             mat = maturity[r, c] * 0.95
+            if self.is_crop[i]:
+                mat *= max(1 - cfg.latitude_adaptation * abs(tr - r) * self.dpp, 0.0)
             if farms_anything[tr, tc]:
                 welcome = 1.0
             else:
@@ -822,6 +880,33 @@ class Farming(System):
         state.stats.update(stats)
 
 
+def _seasonal_suitability(world, is_crop, land):
+    """Rain-fed crops judged by their growing season instead of the whole year's mean
+    temperature: warm-season crops by the warm half, cool-season crops by the cool half
+    (a crop fits if the year or its season suits it); rain, the growing season and the
+    rest as they are. Animals and wild ranges are unchanged."""
+    from worldgen.nature import species_suitability
+    out = np.zeros((len(is_crop),) + land.shape, np.float32)
+    warmest = getattr(world, "warmest_month_c", None)
+    coldest = getattr(world, "coldest_month_c", None)
+    if warmest is None or coldest is None:
+        return out
+    fields = ("ocean", "lake", "biome", "elevation_m", "wetland", "precip_mm", "growing_months", "fresh_water")
+    # Warm-season crops (comfortable from 14 C up: rice, maize, sorghum, tropical roots) gain
+    # from summer heat; cool-season crops (comfortable up to 20 C: wheat, rye) from winter
+    # sowing in warm climates. Not the other way round: Siberia's summer doesn't make wheat
+    # fit a land whose winters kill it.
+    warm_crop = np.array([s.kind == "crop" and s.temp[0] >= 14 for s in SPECIES])
+    cool_crop = np.array([s.kind == "crop" and s.temp[1] <= 20 for s in SPECIES])
+    for temp, which in (((world.temperature_c + warmest) / 2, warm_crop), ((world.temperature_c + coldest) / 2, cool_crop)):
+        proxy = SimpleNamespace(**{k: getattr(world, k) for k in fields})
+        proxy.temperature_c = temp
+        out[which] = np.maximum(out[which], species_suitability(proxy)[which])
+    out[~is_crop] = 0
+    out[:, ~land] = 0
+    return out
+
+
 def _watered_suitability(world, is_crop, land):
     """Where each crop could grow if water were no limit (river-fed fields): rainfall and
     the wet season stop mattering; warmth, height and the rest still do. Watered fields
@@ -838,7 +923,9 @@ def _watered_suitability(world, is_crop, land):
         for rain in (800.0, 1500.0):            # inside the rain range of every crop
             proxy = SimpleNamespace(**{k: getattr(world, k) for k in fields})
             proxy.temperature_c = temp
-            proxy.precip_mm = np.full(land.shape, rain, np.float32)
+            # River water adds to the rain; it can't take rain away (a rainforest floodplain
+            # stays too wet for dry-country grains like sorghum).
+            proxy.precip_mm = np.maximum(world.precip_mm, rain).astype(np.float32)
             proxy.growing_months = world.warm_months
             proxy.fresh_water = np.ones(land.shape, np.float32)      # wet-field crops too
             out = np.maximum(out, species_suitability(proxy))

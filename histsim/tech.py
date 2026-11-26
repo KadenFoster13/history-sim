@@ -66,7 +66,7 @@ TECHS = (
     T("plough", "the plough", "learn to plough with oxen", "farming", needs=("farming", "herds"),
       keeps=("farming",), rarity=4, crowd=0.3, earth=-4000, effect="rain-fed intensification ceiling up"),
     T("terraces", "terracing", "learn to terrace their hillsides", "farming", needs=("farming", "hills"),
-      keeps=("farming",), rarity=4, crowd=0.3, earth=-3000, effect="steep land can be intensified"),
+      keeps=("farming",), rarity=2, crowd=0.3, earth=-3000, effect="steep land can be intensified"),
     T("canals", "irrigation canals", "dig irrigation canals", "farming", needs=("farming", "irrigable_near"),
       finds=("dry_irrigable_near",), rarity=2, crowd=0.3, earth=-5000,
       effect="dry irrigable land watered (canal_irrigation per cell)"),
