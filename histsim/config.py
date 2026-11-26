@@ -149,6 +149,7 @@ class SimConfig:
                                         # with its size; rough country counts as longer)
     reach_growth: float = 2.0           # reach x (1 + this x log10(1 + people / 100,000))
     chiefdom_reach: float = 0.4        # chiefdoms reach only this share as far (~100 km)
+    unstorable_reach: float = 0.25      # reach x this for a state living on crops that don't keep (roots, tree crops)
     chiefdom_seed_cells: float = 0.5    # a new chiefdom: its seat and this many ~50 km cells around it
     chiefdom_fade: float = 1.0          # chiefs' hold fades this much faster than a kingdom's
     chiefdom_dissolve: float = 0.1     # a chiefdom whose cohesion falls below this dissolves

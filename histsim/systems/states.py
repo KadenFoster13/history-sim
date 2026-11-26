@@ -279,6 +279,17 @@ class States(System):
         # The technology of rule carries a state's grip further.
         self.reach *= (1 + cfg.writing_reach * knows["writing"] + cfg.roads_reach * knows["roads"]
                        + cfg.riding_reach * knows["riding"] + cfg.bureaucracy_reach * knows["bureaucracy"])
+        # Rulers reach as far as they can collect: grain keeps, can be counted and carried
+        # to a granary; roots, tubers and tree crops are dug or picked as needed and rot.
+        # States whose people live on those reach much less far (Amazonia's chiefdoms were
+        # large in people but never became kingdoms). (Per-state share, worked out once a step.)
+        if farming is not None and hasattr(farming, "storable_share") and cfg.unstorable_reach < 1:
+            if getattr(self, "_store_year", None) != state.year or len(self._store) < n:
+                store = farming.storable_share(state).ravel()
+                weighted = np.bincount(flat, weights=pop.ravel() * store, minlength=n)
+                self._store = np.where(self.people > 0, weighted / np.maximum(self.people, 1e-9), 1.0)
+                self._store_year = state.year
+            self.reach *= cfg.unstorable_reach + (1 - cfg.unstorable_reach) * self._store[:n]
         chief = self._lookups(n)[1]
         self.chief = chief
         self.reach[:len(chief)][chief] *= cfg.chiefdom_reach         # chiefs rule only nearby

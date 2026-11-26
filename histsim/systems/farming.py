@@ -445,7 +445,7 @@ class Farming(System):
 
     def storable_share(self, state):
         """How much of each cell's crop food keeps and can be counted and taxed (0..1): the
-        best storable crop's yield over the best crop's. Grain ripens at once and keeps for
+        best storable crop's yield over the best crop's, squared. Grain ripens at once and keeps for
         years; roots, tubers and tree crops are dug or picked as needed and rot (cells with
         no crops count as 1)."""
         tamed = state.cells["tamed"]
@@ -457,7 +457,9 @@ class Farming(System):
             np.maximum(best, v, out=best)
             if SPECIES[i].key in STORABLE:
                 np.maximum(best_store, v, out=best_store)
-        return np.where(best > 0, best_store / np.maximum(best, 1e-9), 1.0).astype(np.float32)
+        # Squared: people mostly eat the staple that yields best, so a storable crop well
+        # behind the root crops (beans beside manioc) counts for little.
+        return np.where(best > 0, (best_store / np.maximum(best, 1e-9)) ** 2, 1.0).astype(np.float32)
 
     def _cleared_arable(self, state):
         """Farmland share people can keep in crops: in rainforest, felling and keeping back
