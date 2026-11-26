@@ -377,16 +377,24 @@ class States(System):
         families = self._family_lookup(state)
         fam = families[cult]
         frontier = np.zeros(own.shape, bool)    # facing peoples of another language family
+        rivals = np.zeros(own.shape, bool)      # facing another state of the same family
         for dy, dx in DIRECTIONS4:
             nf = shift(fam, dy, dx)
             frontier |= (nf != fam) & (nf > 0)
+            no = shift(own, dy, dx)
+            rivals |= (own > 0) & (no > 0) & (no != own) & (nf == fam)
         for _ in range(max(0, int(round(1 / self.scale)) - 1)):   # a ~50 km band on maps of any size
-            wider = frontier.copy()
+            wider, wider_r = frontier.copy(), rivals.copy()
             for dy, dx in DIRECTIONS4:
                 wider |= shift(frontier, dy, dx)
-            frontier = wider
+                wider_r |= shift(rivals, dy, dx)
+            frontier, rivals = wider, wider_r
         pop = state.cells["population"]
-        front_people = np.bincount(own.ravel(), weights=(pop * frontier).ravel(), minlength=n)
+        # Rival states of one culture build cohesion too, at a share of a foreign frontier's
+        # pull: peer polities competing in war, display and building (Sumer's city-states,
+        # Greece's poleis, China's Warring States), not only peoples facing strangers.
+        edge = np.where(frontier, 1.0, np.where(rivals, cfg.peer_cohesion, 0.0))
+        front_people = np.bincount(own.ravel(), weights=(pop * edge).ravel(), minlength=n)
         f = np.minimum(front_people / np.maximum(self.people, 1e-9) / max(self.scale, 1), 1.0)   # coarse cells: part of a cell
         a = self.cohesion[:n]
         k = self.knows
@@ -953,6 +961,11 @@ class States(System):
             ruled_by_own = np.bincount(own.ravel(), weights=(state.cells["population"] * match).ravel(),
                                        minlength=n)
         size = state.cells.get("settlement")
+        # Each state's biggest town: where power sits (a chiefdom's first seat may be a
+        # village while a city grows elsewhere in its land, as on the Mesopotamian plain).
+        biggest = np.zeros(n)
+        if size is not None:
+            np.maximum.at(biggest, state.cells["state"].ravel(), size.ravel().astype(np.float64))
         empire = empire_bar(cfg, self._world_people)
         for sid in range(1, n):
             rec = records[sid]
@@ -965,7 +978,7 @@ class States(System):
             if people > rec["peak_people"]:
                 rec["peak_people"], rec["peak_cells"], rec["peak_year"] = round(people), int(self.cell_count[sid]), state.year
             own_share = ruled_by_own[sid] / max(people, 1e-9) if ruled_by_own is not None else 1.0
-            cap_size = float(size.flat[rec["capital"]]) if size is not None else 0.0
+            cap_size = max(float(size.flat[rec["capital"]]), float(biggest[sid])) if size is not None else 0.0
             kind = rec["kind"]
             # Promotions at the thresholds; demotions only well below them (no flickering).
             if people >= empire or (people >= empire * cfg.empire_mixed and own_share < 0.5):

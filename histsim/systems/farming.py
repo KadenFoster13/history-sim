@@ -49,6 +49,10 @@ from .population import FARMING, FORAGING, HERDING, OPENNESS, _by_biome
 
 TSETSE_SENSITIVE = {"cattle", "horse", "camel"}
 INDEPENDENT_KM = 1000      # a domestication this far from any farming counts as a new origin
+# Crops that keep and can be counted and taxed: the grains, pulses and highland tubers (freeze-
+# dried, as chuno in the Andes). Not tropical roots and tree crops (see Farming.storable_share).
+STORABLE = {"temperate_grain", "cold_grain", "wet_grain", "tropical_grain", "slow_grain", "legume",
+            "highland_tuber"}
 
 
 @njit(cache=True)
@@ -439,6 +443,22 @@ class Farming(System):
                          cap.ravel(), mode.ravel())
         return cap, mode
 
+    def storable_share(self, state):
+        """How much of each cell's crop food keeps and can be counted and taxed (0..1): the
+        best storable crop's yield over the best crop's. Grain ripens at once and keeps for
+        years; roots, tubers and tree crops are dug or picked as needed and rot (cells with
+        no crops count as 1)."""
+        tamed = state.cells["tamed"]
+        mat = state.cells["maturity"]
+        best = np.zeros(tamed.shape, np.float32)
+        best_store = np.zeros(tamed.shape, np.float32)
+        for i in np.flatnonzero(self._present(tamed) & self.is_crop & (self.food > 0)):
+            v = np.where((tamed & np.uint32(1 << i)) != 0, self.suit[i] * mat[i] * self.food[i], 0)
+            np.maximum(best, v, out=best)
+            if SPECIES[i].key in STORABLE:
+                np.maximum(best_store, v, out=best_store)
+        return np.where(best > 0, best_store / np.maximum(best, 1e-9), 1.0).astype(np.float32)
+
     def _cleared_arable(self, state):
         """Farmland share people can keep in crops: in rainforest, felling and keeping back
         the forest with stone tools holds it to (1 - rainforest_clearing) of the land, until
@@ -589,7 +609,61 @@ class Farming(System):
             for r in range(rounds):
                 self._spread(state, i, pace, forage, people, farms_anything, rng, first if r == 0 else None)
             self._pioneers(state, i, here, people, forage, farms_anything, rng, e_cell[e_start[i]:e_start[i + 1]])
+        # Crops pass between farming peoples by contact and trade (checked every century).
+        if cfg.crop_exchange_rate > 0 and state.year - getattr(self, "_exchange_year", -10 ** 9) >= cfg.crop_exchange_every:
+            self._exchange_year = state.year
+            self._exchange(state, rng)
         self._stats(state)
+
+    def _exchange(self, state, rng):
+        """Farmers take up a crop or animal that does well on their land when farmers within
+        `crop_exchange_km` keep it: seeds and stock pass between farming peoples by contact
+        and trade far faster than farming itself spreads (wheat and barley reached Egypt's
+        farmers across Sinai by ~5500 BCE, wheat reached China by ~2500 BCE, sorghum crossed
+        to India). Unlike the frontier, this needs no chain of good land in between."""
+        from scipy.ndimage import binary_dilation
+        cfg = state.config
+        tamed = state.cells["tamed"]
+        farms = (tamed != 0) & (state.cells["population"] > 0)
+        if not farms.any():
+            return
+        radius = cfg.crop_exchange_km / self.km_per_px          # in rows (km north-south)
+        reach = int(np.ceil(radius))
+        if reach < 1:
+            return
+        h = tamed.shape[0]
+        maturity = state.cells["maturity"]
+        for i in np.flatnonzero(self._present(tamed)):
+            bit = np.uint32(1 << i)
+            here = (tamed & bit) != 0
+            cand = farms & ~here & (self.suit[i] >= 0.5)
+            if not cand.any():
+                continue
+            # Within reach in km: columns are narrower toward the poles, so the reach is
+            # an ellipse wider in columns, worked out in bands of latitude.
+            near = np.zeros_like(here)
+            for r0 in range(0, h, 16):
+                r1 = min(r0 + 16, h)
+                if not cand[r0:r1].any():
+                    continue
+                cos = float(max(self.cos_lat[(r0 + r1) // 2], 0.2))
+                wide = min(int(np.ceil(radius / cos)), here.shape[1] // 2)
+                yy, xx = np.ogrid[-reach:reach + 1, -wide:wide + 1]
+                shape = (yy / radius) ** 2 + (xx * cos / radius) ** 2 <= 1
+                a0, a1 = max(r0 - reach, 0), min(r1 + reach, h)
+                padded = np.pad(here[a0:a1], ((0, 0), (wide, wide)), mode="wrap")   # the map wraps east-west
+                grown = binary_dilation(padded, structure=shape)[:, wide:-wide]
+                near[r0:r1] = grown[r0 - a0:r1 - a0]
+            cand &= near
+            idx = np.flatnonzero(cand)
+            if not len(idx):
+                continue
+            chance = 1 - np.exp(-cfg.crop_exchange_rate * cfg.crop_exchange_every * self.suit[i].ravel()[idx])
+            take = idx[rng.random(len(idx)) < chance]
+            if len(take):
+                tamed.ravel()[take] |= bit
+                maturity[i].ravel()[take] = 0.9 * float(np.median(maturity[i][here]))
+                self._first_landmass_events(state, i, take)
 
     def _spread(self, state, i, pace, forage, people, farms_anything, rng, front=None):
         """One round of species i spreading to neighbouring cells (worked out only on the

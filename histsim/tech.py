@@ -16,6 +16,9 @@ Needs (per cell, recomputed every step; `_near` ones are fixed facts of the land
   water         on a coast or a big river    hills       steep land nearby
   copper_near / tin_near / iron_near / precious_near (gold or silver)   ore within reach
   irrigable_near                             river land that canals could water
+  dry_irrigable_near                         ... in dry country, where canals are worth digging
+                                             (first dug by villagers on the Mesopotamian plain,
+                                             before towns: Samarra, Choga Mami ~6000 BCE)
   smiths        people who already work copper (iron is first smelted by smiths)
 
 `needs` are what a place must have to use it (and so to take it up from neighbours),
@@ -65,7 +68,7 @@ TECHS = (
     T("terraces", "terracing", "learn to terrace their hillsides", "farming", needs=("farming", "hills"),
       keeps=("farming",), rarity=4, crowd=0.3, earth=-3000, effect="steep land can be intensified"),
     T("canals", "irrigation canals", "dig irrigation canals", "farming", needs=("farming", "irrigable_near"),
-      finds=("towns",), rarity=2, crowd=0.3, earth=-5000,
+      finds=("dry_irrigable_near",), rarity=2, crowd=0.3, earth=-5000,
       effect="dry irrigable land watered (canal_irrigation per cell)"),
     T("manuring", "manuring and crop rotation", "learn to manure and rotate their fields", "farming",
       ("plough",), needs=("farming",), finds=("settled",), rarity=12, crowd=0.5, earth=-1000,
@@ -126,7 +129,7 @@ INDEX = {t.key: i for i, t in enumerate(TECHS)}
 GROUPS = ("farming", "metals", "transport", "rule", "building")
 NEEDS = ("people", "farming", "settled", "herds", "cattle", "horse", "towns", "state", "kingdom",
          "water", "hills", "copper_near", "tin_near", "iron_near", "precious_near", "irrigable_near",
-         "smiths")
+         "dry_irrigable_near", "smiths")
 assert len(TECHS) <= 64
 for _t in TECHS:
     assert all(p in INDEX and INDEX[p] < INDEX[_t.key] for p in _t.prereqs), _t.key

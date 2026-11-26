@@ -106,9 +106,10 @@ class Settlements(System):
                      cfg.town_delay_years, cfg.town_ramp_years, complexity.ravel(), farm_pop.ravel())
         r = max(1, round(cfg.hinterland_km / state.world.grid.km_per_px))
         hinter = _box(farm_pop, r, np.add)
-        if getattr(self, "_hinter_area_r", None) != r:          # land around each cell: fixed
-            self._hinter_area = _box(self.area * self.land, r, np.add)
-            self._hinter_area_r = r
+        # The hinterland's density counts the land that feeds people, not the desert or
+        # mountains around it: a river oasis (the Nile, the Mesopotamian plain) is as dense
+        # as its fields, however much empty land lies beyond them.
+        self._hinter_area = _box(self.area * self.land * (farm_pop > 0), r, np.add)
         size = state.cells["settlement"]
         trade = state.tables.get("trade")
         traded = state.cells["trade"] if trade is not None else np.zeros(1, np.float32)
@@ -121,7 +122,15 @@ class Settlements(System):
                      traded.ravel(), trade is not None, cfg.trade_half, cfg.trade_site, size.ravel(),
                      cfg.urban_share_max, cfg.urban_density_ref, cfg.incumbency,
                      share.ravel(), site.ravel(), score.ravel())
-        centre = (score > 0) & (score >= _box(score, r, np.maximum))
+        # Towns live on surplus that keeps and can be counted and carried: grain. Where
+        # people farm roots, tubers and tree crops (dug or picked as needed, quick to rot),
+        # far fewer live in towns (highland New Guinea: dense farmers, no towns).
+        farming = state.tables.get("farming")
+        if farming is not None and hasattr(farming, "storable_share"):
+            keep = cfg.unstorable_towns + (1 - cfg.unstorable_towns) * farming.storable_share(state)
+            share *= keep
+            score *= keep
+        centre = _centres(score, 2 * r)            # hinterlands that touch, not overlap
         quality = np.clip(site / self.site_mean, 0.5, 2.5)
         target = np.where(centre, cfg.central_place_share * share * hinter * quality, 0)
         # A town can't outgrow the people around it for long: its own townspeople plus the
@@ -403,6 +412,29 @@ def _box(a, r, op):
     if op is np.maximum:
         return _box_max(a, r)
     return _box_sum(a.astype(np.float64), r).astype(a.dtype if a.dtype.kind == "f" else np.float64)
+
+
+@njit(cache=True)
+def _centres(score, r):
+    """Central places: the best-scoring site, then the best site not within r cells of one
+    already chosen, and so on (each neighbourhood's best place, spaced across a whole
+    settled region even where scores rise steadily toward one end, as down a river).
+    Wraps east-west."""
+    h, w = score.shape
+    flat = score.ravel()
+    cand = np.flatnonzero(flat > 0)
+    order = cand[np.argsort(-flat[cand], kind="mergesort")]
+    taken = np.zeros((h, w), np.bool_)
+    out = np.zeros((h, w), np.bool_)
+    for k in range(order.shape[0]):
+        y, x = divmod(order[k], w)
+        if taken[y, x]:
+            continue
+        out[y, x] = True
+        for yy in range(max(y - r, 0), min(y + r + 1, h)):
+            for dx in range(-r, r + 1):
+                taken[yy, (x + dx) % w] = True
+    return out
 
 
 @njit(cache=True)

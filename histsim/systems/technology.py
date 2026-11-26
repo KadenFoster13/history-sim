@@ -64,6 +64,10 @@ class Technology(System):
             "precious_near": self._near((world.gold > 0.1) | (world.silver > 0.1), cfg.precious_reach_km),
             "irrigable_near": self._near(land & (getattr(world, "irrigable", np.zeros_like(land, float)) > 0.3),
                                          cfg.irrigable_reach_km),
+            "dry_irrigable_near": self._near(
+                land & (getattr(world, "irrigable", np.zeros_like(land, float)) > 0.3)
+                & (world.precip_mm < cfg.dry_irrigable_aridity * 55.0 * np.maximum(world.temperature_c, 1.0)),
+                cfg.irrigable_reach_km),
         }
         self.static = {k: v.ravel() for k, v in static.items()}
         # Bits of the technologies that need (or are kept by) each need.

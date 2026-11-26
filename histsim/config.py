@@ -38,7 +38,7 @@ class SimConfig:
     forager_growth: float = 0.002       # yearly growth rate where there's room (falls to 0 at capacity)
 
     # ----------------------------------------------------------- farming
-    farmer_density: float = 1.6         # people per km2 on good land with a mature early crop package, farmed
+    farmer_density: float = 1.4         # people per km2 on good land with a mature early crop package, farmed
                                         # the first way: shifting (slash-and-burn) fields with long fallows
     herder_density: float = 0.6         # people per km2 living off herds on open grazing land
     farmer_growth: float = 0.004        # yearly growth rate where there's room
@@ -57,6 +57,9 @@ class SimConfig:
     coast_corridor: float = 3.0         # ... and along coasts
     pioneer_rate: float = 0.001         # yearly chance per frontier cell on a river or coast that
     pioneer_km: tuple = (50, 300)       #   pioneers settle good land this far ahead
+    crop_exchange_km: float = 400.0     # farmers take up crops kept by farmers this near (contact, trade),
+    crop_exchange_rate: float = 0.0005  #   at this yearly chance (x how well it grows there),
+    crop_exchange_every: int = 100      #   checked this often (years)
     farming_advantage: float = 2.5      # foragers take up farming readily once it would feed this many
     frontier_floor: float = 0.04        #   times more people than foraging (less: this share of the pace)
     flood_yield: float = 1.0            # floodplain harvests up to (1 + this) times others (yearly silt)
@@ -111,9 +114,10 @@ class SimConfig:
     town_delay_years: float = 2000.0    # years of farming before towns can start to appear
     town_ramp_years: float = 3000.0     # ... and before they reach their full potential
     hinterland_km: float = 160.0        # a central place draws on the land about this far around it
-    urban_share_max: float = 0.12       # most of a dense hinterland's people that live in its central places
+    urban_share_max: float = 0.09       # most of a dense hinterland's people that live in its central places
     urban_density_ref: float = 3.0      # hinterland people per km2 for the full urban share
     central_place_share: float = 0.5    # share of those townspeople in the main place
+    unstorable_towns: float = 0.3       # urban share where crops don't keep (roots, tubers, tree crops), x
     river_site: float = 0.5             # site bonus on a river (counted twice for great rivers)
     coast_site: float = 0.4             # site bonus on a sea coast
     incumbency: float = 0.5             # an existing town's advantage over a new site
@@ -148,6 +152,7 @@ class SimConfig:
     chiefdom_seed_cells: float = 0.5    # a new chiefdom: its seat and this many ~50 km cells around it
     chiefdom_fade: float = 1.0          # chiefs' hold fades this much faster than a kingdom's
     chiefdom_dissolve: float = 0.1     # a chiefdom whose cohesion falls below this dissolves
+    peer_cohesion: float = 0.2          # rival states of one culture build cohesion at this share of a foreign frontier's
     chiefdom_war: float = 0.3           # chiefs go to war this much less readily (they raid)
     absorb_rate: float = 0.1           # yearly chance a strong state takes in a stateless village
     absorb_resistance: float = 1.6      # how hard stateless people resist (x square root of people per
@@ -269,6 +274,7 @@ class SimConfig:
     iron_reach_km: float = 300.0
     precious_reach_km: float = 1000.0   # gold or silver, for coinage
     irrigable_reach_km: float = 50.0
+    dry_irrigable_aridity: float = 0.5  # canals are first dug where rain / evaporation is below this
 
     # --------------------------------------------------------- migration
     migration_rate: float = 0.08        # yearly share of crowding pressure that moves to neighbours
