@@ -664,7 +664,9 @@ class Farming(System):
         self._intensify(state)
 
         # Crops improve over the centuries after taming.
-        gains = (1 - np.exp(-dt / (cfg.crop_maturity_years * np.sqrt(self.difficulty)))).astype(np.float32)
+        # Slow taming is slow breeding too: maize took ~5,000 years from the first wild
+        # teosinte to a staple, wheat and barley ~2,500.
+        gains = (1 - np.exp(-dt / (cfg.crop_maturity_years * self.difficulty))).astype(np.float32)
         _mature_kernel(tamed.ravel(), maturity.reshape(self.n, -1), gains)
 
         tamed_flat = tamed.ravel()

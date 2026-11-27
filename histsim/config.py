@@ -42,7 +42,7 @@ class SimConfig:
                                         # the first way: shifting (slash-and-burn) fields with long fallows
     herder_density: float = 0.6         # people per km2 living off herds on open grazing land
     farmer_growth: float = 0.004        # yearly growth rate where there's room
-    crop_maturity_years: float = 2500.0 # years for a newly tamed crop to reach full yield (x sqrt(difficulty))
+    crop_maturity_years: float = 2500.0 # years for a newly tamed crop to reach full yield (x difficulty)
     latitude_adaptation: float = 0.08   # a crop moved north or south loses this share of its yield per degree
 
     # Domestication: chance per year for each suitable, crowded forager cell, before
