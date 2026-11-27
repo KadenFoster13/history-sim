@@ -53,6 +53,21 @@ class Technology(System):
         # Neighbour cell of every cell in each direction (clamped at the poles, wrapping).
         index = np.arange(self.n).reshape(h, w)
         self.neighbours = np.stack([shift(index, dy, dx).ravel() for dy, dx in DIRECTIONS4])
+        # Across the sea: coastal cells on other land masses within tech_sea_km count as
+        # neighbours too (knowledge went by boat: Korea to Japan, Sumatra to Java, Britain to
+        # France, the Aegean islands), pairs (a, b) meaning a hears from b.
+        from scipy.spatial import cKDTree
+        coast = (land & touches(world.ocean)).ravel()
+        cells = np.flatnonzero(coast)
+        self.sea_a = self.sea_b = np.zeros(0, np.int64)
+        if len(cells) > 1 and cfg.tech_sea_km > 0:
+            pairs = cKDTree(self.xyz[cells]).query_pairs(2 * np.sin(cfg.tech_sea_km / 6371.0 / 2), output_type="ndarray")
+            if len(pairs):
+                a, b = cells[pairs[:, 0]], cells[pairs[:, 1]]
+                lm = world.landmass_id.ravel()
+                other = lm[a] != lm[b]
+                a, b = a[other], b[other]
+                self.sea_a, self.sea_b = np.concatenate([a, b]), np.concatenate([b, a])
         # Fixed needs: water, hills, ore and river land within reach.
         river = cell_river_flow(world) > 1000
         static = {
@@ -60,7 +75,7 @@ class Technology(System):
             "hills": land & (world.slope_m_per_km > 8),
             "copper_near": self._near(world.copper > 0.15, cfg.copper_reach_km),
             "tin_near": self._near(world.tin > 0.02, cfg.tin_reach_km),
-            "iron_near": self._near(world.iron > 0.3, cfg.iron_reach_km),
+            "iron_near": self._near(world.iron > cfg.iron_ore_min, cfg.iron_reach_km),
             "precious_near": self._near((world.gold > 0.1) | (world.silver > 0.1), cfg.precious_reach_km),
             "irrigable_near": self._near(land & (getattr(world, "irrigable", np.zeros_like(land, float)) > 0.3),
                                          cfg.irrigable_reach_km),
@@ -80,6 +95,7 @@ class Technology(System):
         keys = [sp.key for sp in SPECIES]
         self.cattle = keys.index("cattle") if "cattle" in keys else None
         self.horse = keys.index("horse") if "horse" in keys else None
+        self.rice = keys.index("wet_grain") if "wet_grain" in keys else None
 
         state.add_layer("tech", np.uint64, record="changes")
         state.tables["inventions"] = self.inventions = []
@@ -124,6 +140,10 @@ class Technology(System):
                  "herds": cattle | horse, "cattle": cattle, "horse": horse, "towns": towns,
                  "state": in_state, "kingdom": kingdom}
         needs.update({k: v[idx] for k, v in self.static.items()})
+        if self.rice is not None:            # paddies are canal works (see tech.py)
+            rice = farming & ((tamed & np.uint32(1 << self.rice)) != 0)
+            needs["dry_irrigable_near"] = needs["dry_irrigable_near"] | (rice & needs["irrigable_near"])
+            needs["irrigable_near"] = needs["irrigable_near"] | rice
         trade = state.tables.get("trade")
         if trade is not None:                      # ores and metals that come by trade
             for k, v in trade.goods.items():
@@ -174,9 +194,13 @@ class Technology(System):
         trade = state.tables.get("trade")
         offer = trade.offer if trade is not None else None
         for _ in range(rounds):
-            # What neighbours (and trading partners) know, for the cells with people only.
+            # What neighbours (and trading partners, and coasts across the sea) know, for the
+            # cells with people only.
+            sea = np.zeros(self.n, np.uint64)
+            if len(self.sea_a):
+                np.bitwise_or.at(sea, self.sea_a, tech[self.sea_b])
             nb = self.neighbours[:, idx]
-            near = tech[nb[0]] | tech[nb[1]] | tech[nb[2]] | tech[nb[3]]
+            near = tech[nb[0]] | tech[nb[1]] | tech[nb[2]] | tech[nb[3]] | sea[idx]
             if offer is not None:
                 near |= offer[idx]                 # what trading partners know
             cand = near & ~known & usable
@@ -191,7 +215,7 @@ class Technology(System):
                 sel = np.flatnonzero(cand[j] & b)
                 if not len(sel):
                     continue
-                count = ((around[:, sel] & b) != 0).sum(axis=0)
+                count = ((around[:, sel] & b) != 0).sum(axis=0) + ((sea[cells[sel]] & b) != 0)
                 chance = 1 - np.exp(-rate * count / 2 * ease[j[sel]])
                 if offer is not None:              # by trade: a chance per step, by how busy
                     traded = (offer[cells[sel]] & b) != 0

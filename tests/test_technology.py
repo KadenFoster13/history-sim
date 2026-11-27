@@ -120,7 +120,9 @@ class FarmingAndTownTests(unittest.TestCase):
         system = next(s for s in self.sim.systems if s.name == "settlements")
         limit = system.feed_limit(st)
         size = st.cells["settlement"]
-        self.assertTrue((size <= limit * 1.001 + 1).all())               # nobody outgrows their food
+        # Nobody outgrows their food (within 2%: trade, which the limit counts, moves on after
+        # the towns in the same year).
+        self.assertTrue((size <= limit * 1.02 + 1).all())
         tech = st.cells["tech"]
         saved = tech.copy()
         try:

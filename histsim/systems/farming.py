@@ -47,6 +47,13 @@ from ..core.simulation import System
 from .geo import DIRECTIONS4, band, cell_area_km2, cell_scale, neighbour_count, neighbour_index, rounds_for
 from .population import FARMING, FORAGING, HERDING, OPENNESS, _by_biome
 
+KEYS = [sp.key for sp in SPECIES]
+# How open a cell's land lies to mounted raiders: the grass steppe most (the horse nomads'
+# own country); scrub, desert edge and savanna less (raided, but farmed: the Levant, the
+# Sahel); forest, marsh and hills give cover.
+RAID_OPEN = {"Grassland": 1.0, "Scrubland": 0.4, "Desert": 0.4, "Savanna": 0.3, "Tundra": 0.3,
+             "Salt flat": 0.4}
+
 TSETSE_SENSITIVE = {"cattle", "horse", "camel"}
 INDEPENDENT_KM = 1000      # a domestication this far from any farming counts as a new origin
 # Crops that keep and can be counted and taxed: the grains, pulses and highland tubers (freeze-
@@ -57,7 +64,7 @@ STORABLE = {"temperate_grain", "cold_grain", "wet_grain", "tropical_grain", "slo
 
 @njit(cache=True)
 def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, flood_dry, slope,
-                  arable_eff, consts):
+                  stream, arable_eff, consts):
     """The intensification ceiling of one cell (see Farming.ceiling)."""
     steep_slope, rainfed, plough_c, manure_c, irrigated, paddy_c = (consts[0], consts[1], consts[2], consts[3],
                                                                     consts[4], consts[5])
@@ -82,27 +89,37 @@ def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryn
     dug = irrigable[i] * dryness[i] * canals
     if dug > water:
         water = dug
+    # Paddies on level land are watered by streams, ponds and the monsoon rain held in
+    # their bunds (Japan, Korea, the Yangtze hills, Bengal): up to stream[i] of the way to
+    # the irrigated ceiling, on the level share of the cell.
+    level = min(max(1 - slope[i] / (20.0 if terraces else 10.0), 0.0), 1.0)
+    if paddy:
+        fed = stream[i] * level * min(max(suit_wet[i], 0.0), 1.0)
+        if fed > water:
+            water = fed
     steep = slope[i] / (2 * steep_slope if terraces else steep_slope)
     quality = min(max(arable_eff[i] / 0.6, 0.3), 1.0) * min(max(1 - steep, 0.3), 1.0)
     rain = (rainfed - 1) * (1 + plough_c * plough + manure_c * manure)
     top = (rain + (irrigated - 1 - rain) * water) * quality
     if paddy:
-        top = top * (1 + (paddy_c - 1) * min(max(suit_wet[i], 0.0), 1.0))
+        # Paddies are level fields: valley floors, plains and deltas (terraced hillsides
+        # with terracing); hill rice elsewhere is dry-field rice.
+        top = top * (1 + (paddy_c - 1) * min(max(suit_wet[i], 0.0), 1.0) * level)
     return 1 + top
 
 
 @njit(cache=True, parallel=True)
 def _ceiling_kernel(tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, flood_dry, slope,
-                    arable_eff, consts, out):
+                    stream, arable_eff, consts, out):
     for i in prange(out.shape[0]):
         out[i] = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood, flood_dry,
-                               slope, arable_eff, consts)
+                               slope, stream, arable_eff, consts)
 
 
 @njit(cache=True, parallel=True)
 def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
                      tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c, flood_dry, slope,
-                     arable_eff, consts, intensity, has_intensity, arable, flood, grazing, area,
+                     stream, arable_eff, consts, intensity, has_intensity, arable, flood, grazing, area,
                      farmer_density, herder_density, flood_yield, cap, mode):
     for i in prange(land.shape[0]):
         if not land[i]:
@@ -112,7 +129,7 @@ def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
         farm = farmer_density * crops * arable[i] * weather * (1 + flood_yield * flood[i])
         if has_intensity:
             ceil = _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryness, flood_c,
-                                 flood_dry, slope, arable_eff, consts)
+                                 flood_dry, slope, stream, arable_eff, consts)
             farm = farm * (1 + (ceil - 1) * intensity[i])
         herding = herder_density * min(herd[i], 2.0) * grazing[i] * weather
         a = max(area[i], 1e-6)
@@ -129,7 +146,7 @@ def _capacity_kernel(land, crop_best, crop_sum, herd, forage, precip, cold,
 @njit(cache=True, parallel=True)
 def _intensify_kernel(intensity, pop, cap, mode, area, own, has_own, farming_mode, dt, intensify_pressure,
                       intensify_density, intensity_neighbour, state_intensify, intensify_years, intensity_start,
-                      decay_years, push_floor):
+                      decay_years, push_floor, known, borrow):
     h, w = intensity.shape
     old = intensity.copy()
     for yy in prange(h):
@@ -156,7 +173,11 @@ def _intensify_kernel(intensity, pop, cap, mode, area, own, has_own, farming_mod
                 speed = 1 + intensity_neighbour * min(lead, 1.0)
                 if has_own and own[y, x] > 0:
                     speed *= 1 + state_intensify
-                gain = dt / intensify_years * push * speed * (intensity_start + i0)
+                # Compounding from what the farmers know: their own methods, or a share of the
+                # best worked within reach (methods travel with migrants and traders: Yayoi
+                # rice farmers brought Korea's paddies to Japan ready-made).
+                base = max(i0, borrow * known[y, x])
+                gain = dt / intensify_years * push * speed * (intensity_start + base)
                 v = i0 + min(gain, 1.0) * (1 - i0)
                 slack = min(max((0.5 - pressure) / 0.5, 0.0), 1.0)
             else:
@@ -323,6 +344,7 @@ class Farming(System):
                 self.suit[i][world.tsetse > cfg.tsetse_block] = 0
         self.suit[:, ~land] = 0
         self.grazing = _by_biome(world.biome, OPENNESS, 0.5)
+        self.raid_open = _by_biome(world.biome, RAID_OPEN, 0.25).astype(np.float32)
         # River water: crops on floodplains (and, with canals, irrigable land) don't need rain.
         self.flood = getattr(world, "floodplain", None)
         self.flood = np.zeros(land.shape, np.float32) if self.flood is None else self.flood.astype(np.float32)
@@ -330,6 +352,11 @@ class Farming(System):
         self.irrigable = getattr(world, "irrigable", None)
         self.irrigable = self.flood if self.irrigable is None else self.irrigable.astype(np.float32)
         self.suit_dry = self.suit.copy()
+        # Small streams, springs and ponds (worldgen's fresh water: 0.5-0.6 in humid lands
+        # away from big rivers): what waters level paddies off the floodplains.
+        fresh = getattr(world, "fresh_water", None)
+        self.stream = (np.zeros(land.shape, np.float32) if fresh is None
+                       else np.where(land, fresh, 0).astype(np.float32))
         self.suit_watered = _watered_suitability(world, self.is_crop, land)
         watered_arable = (world.soil_fertility * np.clip(1 - world.slope_m_per_km / 60, 0, 1)
                           * np.clip(world.warm_months / 6, 0, 1) * (1 - 0.6 * world.wetland))
@@ -367,14 +394,26 @@ class Farming(System):
                           * (0.15 + 0.85 * self.grazing) ** 1.5 * patchy
                           / (1 + world.slope_m_per_km / 15)).astype(np.float32)
         self.landmass = world.landmass_id
+        # Malaria: the climate for its mosquitoes (worldgen's malaria field) where the parasite
+        # is present. On Earth it reached the Americas only after 1492.
+        malaria = getattr(world, "malaria", None)
+        malaria = np.zeros(world.ocean.shape, np.float32) if malaria is None else malaria.astype(np.float32)
+        from worldgen.earth import is_earth
+        if is_earth(world.cfg):
+            malaria = np.where(world.grid.lon < -30, 0, malaria).astype(np.float32)
+        self.health = (1 - cfg.malaria_burden * np.clip(malaria, 0, 1)).astype(np.float32)
+        area = np.asarray(world.landmass_area)
+        self._island_mask = (area[self.landmass] <= cfg.island_max_share) & (self.landmass > 0)
         from worldgen import BIOME_ID
-        self._rainforest = np.isin(world.biome, [BIOME_ID["Tropical rainforest"], BIOME_ID["Temperate rainforest"]])
+        # Rainforest, and the swamp forest of hot, very wet wetlands (most of the Amazon and
+        # Congo basins on the map), which stone tools can't keep cleared either.
+        swamp_forest = (world.biome == BIOME_ID["Wetland"]) & (world.temperature_c >= 20) & (world.precip_mm >= 1500)
+        self._rainforest = np.isin(world.biome, [BIOME_ID["Tropical rainforest"], BIOME_ID["Temperate rainforest"]]) | swamp_forest
         self.km_per_px = world.grid.km_per_px
         self.dpp = world.grid.dpp
         self.cos_lat = np.maximum(np.cos(np.radians(world.grid.lat[:, 0])), 0.05)
         self.slope = world.slope_m_per_km.astype(np.float32)
         # Canals transform dry land; where rain already waters the fields they add little.
-        self.dryness = np.clip((1000 - world.precip_mm) / 600, 0, 1).astype(np.float32)
         # How much a flood's water is worth, by aridity (rain / what could evaporate): all of
         # it in deserts and dry steppe (the Nile, Mesopotamia, the Indus), none where rain
         # meets the need (the Danube, the Amazon). See _ceiling_cell.
@@ -383,6 +422,11 @@ class Farming(System):
         self.flood_dry = np.clip((cfg.flood_water_none_aridity - aridity)
                                  / (cfg.flood_water_none_aridity - cfg.flood_water_full_aridity), 0, 1
                                  ).astype(np.float32)
+        # Canals are worth digging where it's dry for the warmth (rain well short of what could
+        # evaporate): North China, the Deccan and the Ganges, not cool Russia at 700 mm a year.
+        self.dryness = np.clip((cfg.canal_water_none_aridity - aridity)
+                               / (cfg.canal_water_none_aridity - cfg.canal_water_full_aridity), 0, 1
+                               ).astype(np.float32)
         # A flood renews the soil every year, so floodplain fields are cropped every year from
         # the start (no fallow): as productive as fully intensified rain-fed fields. As a share
         # of the irrigated ceiling, the least intensity a farmed floodplain has.
@@ -409,9 +453,14 @@ class Farming(System):
         self._canals = key
         dug = canals if canal_cells is None else np.maximum(canals, canal_cells.astype(np.float32))
         # A real floodplain (0.4+) waters its fields fully; canals as far as they reach.
-        water = np.maximum(np.clip(self.flood / 0.4, 0, 1), dug * self.irrigable)
+        flood = np.clip(self.flood / 0.4, 0, 1)
+        water = np.maximum(flood, dug * self.irrigable)
         watered = self.suit_watered * water[None]
-        self.suit = np.where(self.is_crop[:, None, None], np.maximum(self.suit_dry, watered), self.suit_dry)
+        # Herds graze flood-watered valleys too (cattle, sheep and goats along the Nile and
+        # the Euphrates, where it hardly rains), though not canal-watered fields.
+        pasture = self.suit_watered * flood[None]
+        self.suit = np.where(self.is_crop[:, None, None], np.maximum(self.suit_dry, watered),
+                             np.maximum(self.suit_dry, pasture))
         self.can_tame = self.world_native & (self.suit > 0)    # where each species could be tamed
         arable = np.maximum(self.arable_dry, self.arable_watered * water)
         self.arable_eff = arable.astype(np.float32)
@@ -450,10 +499,13 @@ class Farming(System):
                          np.ascontiguousarray(forage, np.float32).ravel(), precip.ravel(), cold.ravel(),
                          *self._ceiling_inputs(state),
                          np.zeros(1, np.float32) if intensity is None else intensity.ravel(),
-                         intensity is not None, self._cleared_arable(state).ravel(), self.flood.ravel(),
+                         intensity is not None, self._raided(state, self._cleared_arable(state)).ravel(),
+                         self.flood.ravel(),
                          self.grazing.ravel(),
                          self.area.ravel(), cfg.farmer_density, cfg.herder_density, cfg.flood_yield,
                          cap.ravel(), mode.ravel())
+        # Malaria thins people where the parasite and its mosquitoes live (hot, wet low ground).
+        cap *= self.health
         return cap, mode
 
     def storable_share(self, state):
@@ -473,6 +525,51 @@ class Farming(System):
         # Squared: people mostly eat the staple that yields best, so a storable crop well
         # behind the root crops (beans beside manioc) counts for little.
         return np.where(best > 0, (best_store / np.maximum(best, 1e-9)) ** 2, 1.0).astype(np.float32)
+
+    def _known_methods(self, state, intensity):
+        """The most intensive farming within intensity_reach_km of each cell (across narrow
+        seas too), recomputed every 50 years."""
+        cfg = state.config
+        if cfg.intensity_borrow <= 0:
+            return np.zeros(intensity.shape, np.float32)
+        if getattr(self, "_known_year", None) is None or state.year - self._known_year >= 50:
+            from scipy.ndimage import maximum_filter
+            self._known_year = state.year
+            r = max(1, int(round(cfg.intensity_reach_km / state.world.grid.km_per_px)))
+            self._known = maximum_filter(intensity, size=2 * r + 1, mode=("nearest", "wrap")).astype(np.float32)
+        return self._known
+
+    def _raided(self, state, arable):
+        """Farmland share left worth sowing where mounted herders raid: open land within
+        raid_km of herders who ride is raided in proportion to how much of the land around
+        is theirs (the Pontic and Kazakh steppe stayed pasture until the 1700s, held by
+        Scythians, Huns, Cumans and Tatars; farming stopped at the forest edge). A kingdom or
+        empire shields its farmers in part (the Great Wall, Kievan forts)."""
+        cfg = state.config
+        tech = state.cells.get("tech")
+        if cfg.raid_burden <= 0 or tech is None or "horse" not in KEYS:
+            return arable
+        from ..tech import INDEX
+        riding = (tech & np.uint64(1 << INDEX["riding"])) != 0
+        mounted = (state.cells["subsistence"] == HERDING) & riding & self.has(state, KEYS.index("horse"))
+        if not mounted.any():
+            return arable
+        key = (state.year // 50, int(np.count_nonzero(mounted)))
+        if getattr(self, "_raid_key", None) != key:
+            self._raid_key = key
+            from scipy.ndimage import uniform_filter
+            r = max(1, int(round(cfg.raid_km / state.world.grid.km_per_px)))
+            share = uniform_filter(mounted.astype(np.float32), size=2 * r + 1, mode=("nearest", "wrap"))
+            pressure = np.clip(share / cfg.raid_share_full, 0, 1) * self.raid_open
+            # Floodplain farmland is packed with walled villages and towns (Mesopotamia, the Nile).
+            pressure = pressure * (1 - 0.7 * np.clip(self.flood / 0.4, 0, 1))
+            own = state.cells.get("state")
+            if own is not None:
+                records = state.tables.get("states") or [None]
+                big = np.array([r is not None and r["kind"] in ("kingdom", "empire") for r in records], bool)
+                pressure = np.where(big[own], pressure * (1 - cfg.raid_state_shield), pressure)
+            self._raid = (1 - cfg.raid_burden * pressure).astype(np.float32)
+        return (arable * self._raid).astype(np.float32)
 
     def _cleared_arable(self, state):
         """Farmland share people can keep in crops: in rainforest, felling and keeping back
@@ -522,7 +619,7 @@ class Farming(System):
                            cfg.irrigated_ceiling, cfg.paddy_ceiling], np.float64)
         return (tech, len(tech) > 1, bits, state.cells["tamed"].ravel(), wet, suit_wet, self.irrigable.ravel(),
                 self.dryness.ravel(), self.flood.ravel(), self.flood_dry.ravel(), self.slope.ravel(),
-                self.arable_eff.ravel(), consts)
+                self.stream.ravel(), self.arable_eff.ravel(), consts)
 
     def _intensify(self, state):
         """Crowded farmland is worked harder; emptied or abandoned land lets it go."""
@@ -545,7 +642,7 @@ class Farming(System):
                           own if own is not None else np.zeros(pop.shape, np.uint16), own is not None,
                           FARMING, dt, cfg.intensify_pressure, cfg.intensify_density, cfg.intensity_neighbour,
                           cfg.state_intensify, cfg.intensify_years, cfg.intensity_start, cfg.intensity_decay_years,
-                          cfg.intensify_floor)
+                          cfg.intensify_floor, self._known_methods(state, intensity), cfg.intensity_borrow)
         farmed = (mode == FARMING) & (pop > 0)
         np.maximum(intensity, np.where(farmed, self.flood_floor, 0), out=intensity)
 
@@ -646,7 +743,8 @@ class Farming(System):
         cfg = state.config
         tamed = state.cells["tamed"]
         people = state.cells["population"] > 0
-        farms = (tamed != 0) & people
+        # Peoples who live by farming or herding (a fibre plot among foragers is no farm).
+        farms = (state.cells["subsistence"] >= HERDING) & people
         if not farms.any():
             return
         radius = cfg.crop_exchange_km / self.km_per_px          # in rows (km north-south)
@@ -659,7 +757,10 @@ class Farming(System):
         n_lm = int(lm.max()) + 1
         share = (np.bincount(lm, weights=farms.ravel(), minlength=n_lm)
                  / np.maximum(np.bincount(lm, weights=people.ravel(), minlength=n_lm), 1))
-        unfarmed = people & ~farms & (share[self.landmass] < 0.25) & (self.landmass > 0)
+        # Islands only (up to about New Guinea or Borneo): on a continent the frontier
+        # carries farming, and a thinly farmed continent is not open to boat colonists.
+        island = self._island_mask
+        unfarmed = people & ~farms & (share[self.landmass] < 0.25) & (self.landmass > 0) & island
         sailors = self.coastal              # paddled boats cross a strait; sails aren't needed
         for i in np.flatnonzero(self._present(tamed)):
             bit = np.uint32(1 << i)
@@ -898,23 +999,31 @@ def _seasonal_suitability(world, is_crop, land):
     # fit a land whose winters kill it.
     warm_crop = np.array([s.kind == "crop" and s.temp[0] >= 14 for s in SPECIES])
     cool_crop = np.array([s.kind == "crop" and s.temp[1] <= 20 for s in SPECIES])
+    # Tropical roots (comfortable from 20 C: yams, taro, manioc) are perennials that frost
+    # kills: a hot summer is no use to them where winters freeze.
+    tender = np.array([s.kind == "crop" and s.temp[0] >= 20 for s in SPECIES])
+    frost_free = coldest >= 10
     for temp, which in (((world.temperature_c + warmest) / 2, warm_crop), ((world.temperature_c + coldest) / 2, cool_crop)):
         proxy = SimpleNamespace(**{k: getattr(world, k) for k in fields})
         proxy.temperature_c = temp
-        out[which] = np.maximum(out[which], species_suitability(proxy)[which])
+        season = species_suitability(proxy)
+        season[tender] = np.where(frost_free, season[tender], 0)
+        out[which] = np.maximum(out[which], season[which])
     out[~is_crop] = 0
     out[:, ~land] = 0
     return out
 
 
 def _watered_suitability(world, is_crop, land):
-    """Where each crop could grow if water were no limit (river-fed fields): rainfall and
+    """Where each crop could grow (or herd graze) if water were no limit (river-fed fields): rainfall and
     the wet season stop mattering; warmth, height and the rest still do. Watered fields
     can also be sown in the cool half of the year (winter wheat and barley on the Nile,
     Euphrates and Indus floods), so a crop counts as fitting if either half suits it."""
     from worldgen.nature import species_suitability
     out = np.zeros((len(is_crop),) + land.shape, np.float32)
     fields = ("ocean", "lake", "biome", "elevation_m", "wetland")
+    from worldgen.generator import BIOME_ID
+    desert, scrub = BIOME_ID["Desert"], BIOME_ID["Scrubland"]
     coldest = getattr(world, "coldest_month_c", None)
     seasons = [world.temperature_c]
     if coldest is not None:
@@ -929,6 +1038,9 @@ def _watered_suitability(world, is_crop, land):
             proxy.growing_months = world.warm_months
             proxy.fresh_water = np.ones(land.shape, np.float32)      # wet-field crops too
             out = np.maximum(out, species_suitability(proxy))
-    out[~is_crop] = 0
+            # A watered desert valley is green pasture (cattle on the Nile and the Euphrates):
+            # for herds, a desert floodplain is scrub.
+            proxy.biome = np.where(world.biome == desert, scrub, world.biome)
+            out[~is_crop] = np.maximum(out[~is_crop], species_suitability(proxy)[~is_crop])
     out[:, ~land] = 0
     return out

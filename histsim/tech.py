@@ -19,7 +19,15 @@ Needs (per cell, recomputed every step; `_near` ones are fixed facts of the land
   dry_irrigable_near                         ... in dry country, where canals are worth digging
                                              (first dug by villagers on the Mesopotamian plain,
                                              before towns: Samarra, Choga Mami ~6000 BCE)
-  smiths        people who already work copper (iron is first smelted by smiths)
+  smiths        people who already work copper (iron is first smelted by smiths, near rich
+                ore, after long practice: see LAG; once known it is smelted anywhere, as bog
+                iron and laterite are nearly everywhere: sub-Saharan Africa went from stone
+                to iron)
+  Wet-rice farmers count as irrigable_near, and on river land as dry_irrigable_near too:
+  a paddy is a canal work (bunds, levelled fields, channels), first built on the lower
+  Yangtze by villagers who also had rain.
+The plough is used by farmers, but cattle herders keep and pass it on (ox-drawn ploughs
+crossed the herding country between the farming valleys of the Near East and India).
 
 `needs` are what a place must have to use it (and so to take it up from neighbours),
 `finds` what it must have as well to find it first (iron is found in towns, then smelted
@@ -63,8 +71,8 @@ TECHS = (
     # ---- farming
     T("pottery", "pottery", "learn to fire pottery", "farming", needs=("people",), rarity=8,
       earth=-14000, effect="storage: famine milder"),
-    T("plough", "the plough", "learn to plough with oxen", "farming", needs=("farming", "herds"),
-      keeps=("farming",), rarity=4, crowd=0.3, earth=-4000, effect="rain-fed intensification ceiling up"),
+    T("plough", "the plough", "learn to plough with oxen", "farming", needs=("herds",),
+      finds=("farming",), rarity=4, crowd=0.3, earth=-4000, effect="rain-fed intensification ceiling up"),
     T("terraces", "terracing", "learn to terrace their hillsides", "farming", needs=("farming", "hills"),
       keeps=("farming",), rarity=2, crowd=0.3, earth=-3000, effect="steep land can be intensified"),
     T("canals", "irrigation canals", "dig irrigation canals", "farming", needs=("farming", "irrigable_near"),
@@ -79,8 +87,8 @@ TECHS = (
     T("bronze", "bronze", "learn to smelt bronze", "metals", ("copper",),
       needs=("farming", "copper_near", "tin_near"), finds=("towns",), rarity=4, crowd=0.8, earth=-3300,
       effect="war bonus; drives the tin trade"),
-    T("iron", "iron working", "learn to smelt iron", "metals", needs=("farming", "iron_near"),
-      finds=("towns", "smiths"), rarity=150, crowd=1.0, earth=-1200, effect="cheap metal: war, ploughs, clearing"),
+    T("iron", "iron working", "learn to smelt iron", "metals", needs=("people",),
+      finds=("farming", "towns", "smiths", "iron_near"), rarity=60, crowd=1.0, earth=-1200, effect="cheap metal: war, ploughs, clearing"),
     # ---- transport
     T("wheel", "the wheel and cart", "build the first wheeled carts", "transport", needs=("herds",),
       finds=("farming",), rarity=10, crowd=0.5, earth=-3500, effect="travel on open land cheaper"),
@@ -120,7 +128,7 @@ TECHS = (
 # ~600 BCE). More people find it sooner, but never faster than this: the chance per year
 # is h / (1 + h x lag) for a hazard h.
 LAG = {"plough": 300, "terraces": 300, "canals": 300, "manuring": 1000, "copper": 300, "bronze": 300,
-       "iron": 1500, "wheel": 300, "riding": 200, "chariot": 400, "sailing": 300, "roads": 700,
+       "iron": 2500, "wheel": 300, "riding": 200, "chariot": 400, "sailing": 300, "roads": 700,
        "counting": 200, "writing": 400, "bureaucracy": 600, "law": 800, "coinage": 1000, "walls": 200,
        "monuments": 300, "siegecraft": 1000, "armies": 800}
 TECHS = tuple(replace(t, lag=float(LAG.get(t.key, 0))) for t in TECHS)

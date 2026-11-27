@@ -38,7 +38,7 @@ class SimConfig:
     forager_growth: float = 0.002       # yearly growth rate where there's room (falls to 0 at capacity)
 
     # ----------------------------------------------------------- farming
-    farmer_density: float = 1.0         # people per km2 on good land with a mature early crop package, farmed
+    farmer_density: float = 1.15        # people per km2 on good land with a mature early crop package, farmed
                                         # the first way: shifting (slash-and-burn) fields with long fallows
     herder_density: float = 0.6         # people per km2 living off herds on open grazing land
     farmer_growth: float = 0.004        # yearly growth rate where there's room
@@ -58,9 +58,10 @@ class SimConfig:
     coast_corridor: float = 3.0         # ... and along coasts
     pioneer_rate: float = 0.001         # yearly chance per frontier cell on a river or coast that
     pioneer_km: tuple = (50, 300)       #   pioneers settle good land this far ahead
-    crop_exchange_km: float = 400.0     # farmers take up crops kept by farmers this near (contact, trade),
+    crop_exchange_km: float = 500.0     # farmers take up crops kept by farmers this near (contact, trade),
     crop_exchange_rate: float = 0.0005  #   at this yearly chance (x how well it grows there),
     crop_exchange_every: int = 100      #   checked this often (years)
+    island_max_share: float = 0.002     # land masses up to this share of the globe (~1M km2) count as islands
     farming_advantage: float = 2.5      # foragers take up farming readily once it would feed this many
     frontier_floor: float = 0.12        #   times more people than foraging (less: this share of the pace)
     flood_yield: float = 1.0            # floodplain harvests up to (1 + this) times others (yearly silt)
@@ -71,20 +72,29 @@ class SimConfig:
     # (shorter fallow, ploughs, manure, terraces, irrigation), so old farmland feeds many
     # times more people than new. `intensity` (0..1) per cell multiplies what farmland
     # feeds, up to its ceiling.
-    rainfed_ceiling: float = 9.0        # most a rain-fed field can be intensified (x) with the hoe,
+    rainfed_ceiling: float = 11.0       # most a rain-fed field can be intensified (x) with the hoe,
     plough_ceiling: float = 0.3         # ... (x - 1) this much more with the plough,
     manuring_ceiling: float = 0.3       # ... and with manuring and rotation
     steep_slope: float = 80.0           # m/km at which farmland is worth least (twice as steep with terraces)
     irrigated_ceiling: float = 30.0     # ... a floodplain, or dry irrigable land under a state (canals)
     flood_water_full_aridity: float = 0.3  # a flood's water counts fully where rain / evaporation is below this,
     flood_water_none_aridity: float = 1.0  #   not at all above this (it still brings silt; paddies always use it)
+    canal_water_full_aridity: float = 0.5   # canals water dry land fully where rain / evaporation is below this,
+    canal_water_none_aridity: float = 1.2   #   not at all above this
     rainforest_clearing: float = 0.5   # share of rainforest farmland stone tools can't keep cleared (until iron)
+    raid_km: float = 300.0              # mounted herders raid farmland this far
+    raid_share_full: float = 0.3        # ... fully where they hold this share of the land around
+    raid_burden: float = 0.85           # share of open farmland's yield raids take at full pressure
+    raid_state_shield: float = 0.5      # ... less this share inside a kingdom or empire
+    malaria_burden: float = 0.4         # share of people a full malaria environment can't keep (Old World only on Earth)
     paddy_ceiling: float = 1.5          # ... and this much more where the rice-like grain grows well
     intensify_years: float = 2500.0     # time scale of intensification under full pressure
     intensify_pressure: float = 0.6     # it starts once people reach this share of what the land feeds
     intensify_density: float = 2.0      # ... at full pace with this many people per km2 (faster with more, up to 3x)
     intensify_floor: float = 0.5        # ... and at least this pace (x) where the land is full, however thin
     intensity_start: float = 0.1        # how slowly it begins (growth ~ this + intensity: compounding)
+    intensity_borrow: float = 0.5       # farmers start from this share of the best methods within reach,
+    intensity_reach_km: float = 400.0   # ... this far (across narrow seas too)
     intensity_neighbour: float = 1.0    # faster next to more intensive land (methods spread)
     state_intensify: float = 1.0        # faster inside a state (order, works, markets): x(1 + this)
     intensity_decay_years: float = 400.0  # half-life of intensity on emptied or abandoned land
@@ -270,11 +280,13 @@ class SimConfig:
     tech_spread_km_year: float = 2.0    # how fast knowledge spreads overland
     tech_corridor: float = 2.0          # ... this much faster (+) along coasts and big rivers
     tech_state_spread: float = 1.0      # ... and inside a state
+    tech_sea_km: float = 300.0          # coasts this near across the sea pass knowledge on (by boat)
     tech_loss_half_life: float = 150.0  # knowledge whose keepers are gone halves in this many years
     tech_town_km: float = 150.0         # "towns" need: a town within this distance
     copper_reach_km: float = 500.0      # ore within reach (before trade carries it further)
     tin_reach_km: float = 2000.0
-    iron_reach_km: float = 300.0
+    iron_reach_km: float = 500.0        # iron is first smelted within this distance of ore
+    iron_ore_min: float = 0.15          # ... at least this rich (then anywhere: see tech.py)
     precious_reach_km: float = 1000.0   # gold or silver, for coinage
     irrigable_reach_km: float = 50.0
     dry_irrigable_aridity: float = 0.5  # canals are first dug where rain / evaporation is below this
