@@ -87,7 +87,7 @@ def score(sim_population, hyde, ocean=None):
     t = targets_1300()
     owner = region_owner(sim_population.shape)
     blend = blended_map(hyde, t)
-    lines = [f"{'region':<26}{'sim':>7}{'target':>8}{'range':>14}{'sim/target':>11}  conf    in range"]
+    lines = [f"{'region':<26}{'sim':>7}{'target':>8}{'band':>14}{'all sources':>15}{'sim/target':>11}  conf    in band"]
     errors, in_range = [], 0
     for name in REGIONS:
         m = owner == name
@@ -95,7 +95,8 @@ def score(sim_population, hyde, ocean=None):
         ok = r["lo"] * 0.9 <= s <= r["hi"] * 1.1
         in_range += ok
         errors.append(abs(np.log2(max(s, 0.01) / r["target"])))
-        lines.append(f"{name:<26}{s:7.1f}{r['target']:8.1f}{r['lo']:7.1f}-{r['hi']:<6.1f}{s / r['target']:11.2f}  "
+        lines.append(f"{name:<26}{s:7.1f}{r['target']:8.1f}{r['lo']:7.1f}-{r['hi']:<6.1f}{r['min']:8.1f}-{r['max']:<6.1f}"
+                     f"{s / r['target']:11.2f}  "
                      f"{r['confidence']:<7} {'yes' if ok else 'no'}")
     wt = world_1300()
     total = sim_population.sum() / 1e6
@@ -105,8 +106,8 @@ def score(sim_population, hyde, ocean=None):
     overlap = float(np.minimum(s2 / s2.sum(), b2 / b2.sum())[land].sum())
     nums = {"world": total, "regions_in_range": in_range, "mean_log2_error": float(np.mean(errors)),
             "pattern_overlap": overlap}
-    lines.append(f"world: sim {total:.0f}M, target {wt['target']:.0f}M ({wt['lo']:.0f}-{wt['hi']:.0f})")
-    lines.append(f"regions in range: {in_range}/{len(REGIONS)}; mean error {2 ** nums['mean_log2_error']:.2f}x "
+    lines.append(f"world: sim {total:.0f}M, target {wt['target']:.0f}M (band {wt['lo']:.0f}-{wt['hi']:.0f}, sources {wt['min']:.0f}-{wt['max']:.0f})")
+    lines.append(f"regions in band: {in_range}/{len(REGIONS)}; mean error {2 ** nums['mean_log2_error']:.2f}x "
                  f"(|log2| {nums['mean_log2_error']:.2f}); pattern overlap at ~2 degrees {overlap:.2f} (1 = same)")
     return lines, nums
 

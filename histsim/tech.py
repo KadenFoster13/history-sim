@@ -28,6 +28,9 @@ Needs (per cell, recomputed every step; `_near` ones are fixed facts of the land
   Yangtze by villagers who also had rain.
 The plough is used by farmers, but cattle herders keep and pass it on (ox-drawn ploughs
 crossed the herding country between the farming valleys of the Near East and India).
+Manuring and rotation need no plough: hoe farmers manured, composted and rotated too
+(Mesoamerica's milpa with beans and chinampa muck, Andean llama dung, West African
+compound fields).
 Canal and paddy works are found on river land, but any farmers pass the knowledge on: it
 waters only irrigable land and paddies (systems/farming.py), so it does nothing where
 there is neither, yet it crosses dry-field country between them (paddies went from the
@@ -83,7 +86,7 @@ TECHS = (
       finds=("irrigable_near", "dry_irrigable_near"), rarity=2, crowd=0.3, earth=-5000,
       effect="dry irrigable land watered (canal_irrigation per cell)"),
     T("manuring", "manuring and crop rotation", "learn to manure and rotate their fields", "farming",
-      ("plough",), needs=("farming",), finds=("settled",), rarity=12, crowd=0.5, earth=-1000,
+      needs=("farming",), finds=("settled",), rarity=12, crowd=0.5, earth=-1000,
       effect="rain-fed ceiling up again"),
     # ---- metals
     T("copper", "copper working", "learn to work copper", "metals", needs=("farming", "copper_near"),

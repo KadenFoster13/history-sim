@@ -4,7 +4,8 @@ Calibration targets for world 0 (Earth). 1300 is used, not 1400, because the sim
 has no Black Death. Each region is a latitude/longitude box on the map (the first region
 listed owns cells where boxes overlap). Its target is the median of the sources below and
 its range their spread; where a source covers a different area than the box, the adjustment
-is in its name. HYDE 3.3 values are the sums of its 1300 CE grid over each box.
+is in its name. HYDE 3.3 values are the sums of its 1300 CE grid over each box. The
+accepted band is the middle half of the sources where there are four or more (else all of them).
 
 Sources (millions), as read from Wikipedia's comparison tables (Estimates of historical
 world population, Demographics of India, Medieval demography, Population history of China,
@@ -12,11 +13,15 @@ Demographic history of Japan before the Meiji Restoration, Population history of
 Indigenous peoples of the Americas), November 2026:
   McEvedy & Jones 1978, Biraben 1979/1980/2005, Durand 1974, Clark 1967, Maddison 2001,
   Urlanis 1941 (Europe), Farris 2006 (Japan), Denevan 1992 and Alchon 2003 (the Americas,
+  for 1492), Kroeber 1939, Steward 1949, Rosenblat 1954, Sapper 1924, Dobyns 1966 (the Americas,
   for 1492), Snow 2001, Thornton 2005, Peros 2009, Milner 2010 (North America), HYDE 3.3
   (Klein Goldewijk, Utrecht University, CC-BY).
 Maddison gives only 1000 and 1500 for most regions: those are interpolated geometrically
 (60% of the way, for 1300). Confidence says how many independent sources a region has.
-The Americas' figures are for 1492 and lack the low counts (Kroeber, Rosenblat).
+The Americas' figures are for 1492, from the high counts (Dobyns, Sapper, Denevan,
+Alchon) to the low (Kroeber 1939, Steward 1949, Rosenblat 1954, from Wikipedia's table of
+pre-1492 estimates); South America's low counts add each author's Andes to a rough share of
+the rest of his total.
 """
 
 
@@ -57,9 +62,13 @@ SOURCES_1300 = {
                                   "HYDE 3.3": 11.8}),
     "Sub-Saharan Africa": ("low", {"Maddison (interp.)": _interp(21.8, 38.3), "HYDE 3.3": 43.0}),
     "Mesoamerica": ("low", {"Denevan 1992 (1492: Mexico + Central America)": 22.8, "Alchon 2003 (1492)": 22.5,
-                            "HYDE 3.3": 19.3}),
+                            "HYDE 3.3": 19.3, "Kroeber 1939 (1492)": 3.3, "Steward 1949 (1492)": 5.24,
+                            "Rosenblat 1954 (1492)": 5.3, "Sapper 1924 (1492, mid)": 19.0, "Dobyns 1966 (1492, mid)": 45.9}),
     "Andes+S America": ("low", {"Denevan 1992 (1492: Andes, Amazonia, Patagonia)": 24.3, "Alchon 2003 (1492)": 21.5,
-                                "HYDE 3.3": 24.8}),
+                                "HYDE 3.3": 24.8,
+                                "Kroeber 1939 (1492: Andes 3 + rest of total, rough)": 6.0,
+                                "Steward 1949 (1492: Andes 6.1 + rest of total, rough)": 9.0,
+                                "Rosenblat 1954 (1492: Andes 4.75 + rest of total, rough)": 6.8}),
     "N America (N of Mexico)": ("medium", {"Denevan 1992": 3.79, "Alchon 2003": 3.5, "Snow 2001": 3.44,
                                            "Thornton 2005": 7.0, "Peros 2009": 2.5, "Milner 2010": 3.8, "HYDE 3.3": 4.8}),
 }
@@ -74,18 +83,32 @@ def _median(values):
     return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
 
 
+def _band(vals):
+    """The accepted band: the middle half of the sources (25th to 75th percentile) when there
+    are four or more, else their whole spread (so one outlier, like Dobyns or Kroeber, does
+    not stretch it)."""
+    import numpy as np
+    if len(vals) >= 4:
+        return float(np.percentile(vals, 25)), float(np.percentile(vals, 75))
+    return min(vals), max(vals)
+
+
 def targets_1300():
-    """{region: {"target", "lo", "hi", "confidence", "sources"}} in millions."""
+    """{region: {"target", "lo", "hi", "min", "max", "confidence", "sources"}} in millions:
+    target = median, lo-hi = the accepted band, min-max = all the sources."""
     out = {}
     for name, (conf, src) in SOURCES_1300.items():
         vals = list(src.values())
-        out[name] = {"target": _median(vals), "lo": min(vals), "hi": max(vals), "confidence": conf, "sources": src}
+        lo, hi = _band(vals)
+        out[name] = {"target": _median(vals), "lo": lo, "hi": hi, "min": min(vals), "max": max(vals),
+                     "confidence": conf, "sources": src}
     return out
 
 
 def world_1300():
     vals = list(WORLD_1300.values())
-    return {"target": _median(vals), "lo": min(vals), "hi": max(vals), "sources": WORLD_1300}
+    lo, hi = _band(vals)
+    return {"target": _median(vals), "lo": lo, "hi": hi, "min": min(vals), "max": max(vals), "sources": WORLD_1300}
 
 
 def region_owner(shape):
