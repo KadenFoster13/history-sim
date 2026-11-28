@@ -51,6 +51,8 @@ KEYS = [sp.key for sp in SPECIES]
 # How open a cell's land lies to mounted raiders: the grass steppe most (the horse nomads'
 # own country); scrub, desert edge and savanna less (raided, but farmed: the Levant, the
 # Sahel); forest, marsh and hills give cover.
+# Animals kept by settled farmers, not herded: their food counts toward farming.
+FARMYARD = ("pig", "fowl")
 RAID_OPEN = {"Grassland": 1.0, "Scrubland": 0.4, "Desert": 0.4, "Savanna": 0.3, "Tundra": 0.3,
              "Salt flat": 0.4}
 
@@ -190,8 +192,10 @@ def _intensify_kernel(intensity, pop, cap, mode, area, own, has_own, farming_mod
 
 
 @njit(cache=True)
-def _food_kernel(tamed, suit, maturity, food, is_crop, crop_best, crop_sum, herd):
-    """Food per km2 from each cell's tamed species: the best crop, all crops, and herds."""
+def _food_kernel(tamed, suit, maturity, food, is_crop, farmyard, crop_best, crop_sum, herd):
+    """Food per km2 from each cell's tamed species: the best crop, all crops, and herds.
+    Farmyard animals (pigs, fowl) live on settled farmers' scraps and stubble, not with
+    herders: they add to the farm's food like a second crop, not to herding."""
     n = suit.shape[0]
     for c in range(tamed.shape[0]):
         bits = tamed[c]
@@ -203,6 +207,8 @@ def _food_kernel(tamed, suit, maturity, food, is_crop, crop_best, crop_sum, herd
                 if is_crop[i]:
                     if v > crop_best[c]:
                         crop_best[c] = v
+                    crop_sum[c] += v
+                elif farmyard[i]:
                     crop_sum[c] += v
                 else:
                     herd[c] += v
@@ -333,6 +339,7 @@ class Farming(System):
         self.scale = cell_scale(world, cfg)
         self.n = len(SPECIES)
         self.is_crop = np.array([s.kind == "crop" for s in SPECIES])
+        self.farmyard = np.array([s.key in FARMYARD for s in SPECIES])
         self.food = np.array([s.food for s in SPECIES], np.float32)
         self.difficulty = np.array([s.difficulty for s in SPECIES], np.float32)
         self.area = cell_area_km2(world)
@@ -489,7 +496,7 @@ class Farming(System):
         herd = np.zeros(land.shape, np.float32)
         n_sp = self.n
         _food_kernel(tamed.ravel(), self.suit.reshape(n_sp, -1), maturity.reshape(n_sp, -1), self.food,
-                     self.is_crop, crop_best.ravel(), crop_sum.ravel(), herd.ravel())
+                     self.is_crop, self.farmyard, crop_best.ravel(), crop_sum.ravel(), herd.ravel())
         # The rest, cell by cell (compiled): a varied package of crops helps; the weather;
         # floodplains renew their soil every year (silt: up to 1 + flood_yield times the
         # harvest); intensity up to each cell's ceiling; herding on open land. Each cell lives
