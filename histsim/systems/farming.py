@@ -98,7 +98,10 @@ def _ceiling_cell(i, tech, has_tech, bits, tamed, wet, suit_wet, irrigable, dryn
         if fed > water:
             water = fed
     steep = slope[i] / (2 * steep_slope if terraces else steep_slope)
-    quality = min(max(arable_eff[i] / 0.6, 0.3), 1.0) * min(max(1 - steep, 0.3), 1.0)
+    # The better the land, the harder it repays working (deep alluvium and loess against thin
+    # or stony soil): (arable / ceiling_quality_ref) ** ceiling_quality_power, within limits.
+    good = (max(arable_eff[i], 0.0) / consts[6]) ** consts[7]
+    quality = min(max(good, consts[8]), consts[9]) * min(max(1 - steep, 0.3), 1.0)
     rain = (rainfed - 1) * (1 + plough_c * plough + manure_c * manure)
     top = (rain + (irrigated - 1 - rain) * water) * quality
     if paddy:
@@ -631,7 +634,8 @@ class Farming(System):
         suit_wet = self.suit[wet].ravel() if wet >= 0 else np.zeros(1, np.float32)
         bits = np.array([INDEX["canals"], INDEX["terraces"], INDEX["plough"], INDEX["manuring"]], np.int64)
         consts = np.array([cfg.steep_slope, cfg.rainfed_ceiling, cfg.plough_ceiling, cfg.manuring_ceiling,
-                           cfg.irrigated_ceiling, cfg.paddy_ceiling], np.float64)
+                           cfg.irrigated_ceiling, cfg.paddy_ceiling, cfg.ceiling_quality_ref,
+                           cfg.ceiling_quality_power, cfg.ceiling_quality_min, cfg.ceiling_quality_max], np.float64)
         return (tech, len(tech) > 1, bits, state.cells["tamed"].ravel(), wet, suit_wet, self.irrigable.ravel(),
                 self.dryness.ravel(), self.flood.ravel(), self.flood_dry.ravel(), self.slope.ravel(),
                 self.stream.ravel(), self.arable_eff.ravel(), consts)

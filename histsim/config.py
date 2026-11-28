@@ -76,6 +76,10 @@ class SimConfig:
     plough_ceiling: float = 0.3         # ... (x - 1) this much more with the plough,
     manuring_ceiling: float = 0.3       # ... and with manuring and rotation
     steep_slope: float = 80.0           # m/km at which farmland is worth least (twice as steep with terraces)
+    ceiling_quality_ref: float = 0.6    # the ceiling is x (arable / this) ** ceiling_quality_power,
+    ceiling_quality_power: float = 2.0  #   so the best land repays intensifying most (was x arable / 0.6),
+    ceiling_quality_min: float = 0.15   #   at least this share (was 0.3)
+    ceiling_quality_max: float = 1.5    #   and at most this (was 1.0)
     irrigated_ceiling: float = 30.0     # ... a floodplain, or dry irrigable land under a state (canals)
     flood_water_full_aridity: float = 0.3  # a flood's water counts fully where rain / evaporation is below this,
     flood_water_none_aridity: float = 1.0  #   not at all above this (it still brings silt; paddies always use it)
