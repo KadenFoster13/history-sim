@@ -161,6 +161,31 @@ def cmd_info(args):
         print(f"  {label(e['year'])}: {e['text']}")
 
 
+def cmd_score(args):
+    """Earth runs against the blended 1300 CE targets and HYDE 3.3 (see analysis/hyde.py)."""
+    import numpy as np
+    from .analysis.hyde import load_hyde, ratio_map, score
+    runs = [RunReader(r) for r in args.runs]
+    for run in runs:
+        if run.meta["world_seed"] != 0:
+            raise SystemExit(f"{run.meta['world_seed']}: score compares Earth runs only (world 0)")
+    width = runs[0].meta["world_width"]
+    year = args.year + 9_999 if args.year > 0 else args.year + 10_000     # no year 0: 1 CE = year 10,000
+    pop = np.mean([run.layers_at(year)["population"].astype(np.float64) for run in runs], axis=0)
+    hyde = load_hyde(args.hyde, args.year, width, cache_dir="world_cache")
+    world = load_world(0, width)
+    print(f"{len(runs)} run(s) at {label(year)} against HYDE 3.3 {args.year} and the blended targets")
+    if args.year != 1300:
+        print("(the regional targets are for 1300 CE; HYDE's pattern is for the year asked)")
+    lines, _ = score(pop, hyde, world.ocean)
+    for line in lines:
+        print(line)
+    if args.map:
+        ratio_map(pop, hyde, world.ocean, args.map,
+                  f"Sim ({len(runs)} run(s)) vs HYDE 3.3 scaled to the targets, {label(year)}: red = sim too dense")
+        print(f"map: {args.map}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="histsim", description="History simulator for worldgen worlds")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -223,6 +248,13 @@ def main(argv=None):
     bench.add_argument("--every", type=int, default=1000, help="years per line of the speed table")
     bench.add_argument("--save", help="also save the run (adds the recorder's time)")
     bench.set_defaults(func=cmd_bench)
+
+    score_p = sub.add_parser("score", help="compare Earth runs with 1300 CE targets and HYDE 3.3")
+    score_p.add_argument("runs", nargs="+", help="saved Earth runs (their mean is scored)")
+    score_p.add_argument("--hyde", required=True, help="folder with HYDE 3.3 <year>_pop.zip files")
+    score_p.add_argument("--year", type=int, default=1300, help="real year, CE (default 1300)")
+    score_p.add_argument("--map", help="also save a sim/HYDE ratio map to this PNG")
+    score_p.set_defaults(func=cmd_score)
 
     info = sub.add_parser("info", help="summarise a saved run")
     info.add_argument("run")

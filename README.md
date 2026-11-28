@@ -42,6 +42,7 @@ python -m histsim info runs/world31_seed1          summarise it and show the fir
 python -m histsim watch --world 31 --seed 1        watch a history live in the viewer
 python -m histsim replay runs/world31_seed1        replay a saved run in the viewer
 python -m histsim bench --world 31                 time a run to 1 CE, system by system
+python -m histsim score RUN [RUN ...] --hyde DIR   score Earth runs against 1300 CE estimates and HYDE
 ```
 
 `--world 0` is Earth (worldgen 1.6+): real elevation, wild species in their real homelands
@@ -70,6 +71,19 @@ saved run's graphs also show its run time per century, system by system.
 10,000 BCE: `sparse` (short sea hops only, many empty lands), `some` (the default: rare
 ancient voyages reach large lands within 1,500 km), `most` (voyages up to 2,500 km) or
 `all` (every sizeable landmass). The levels are defined in `histsim/config.py`.
+
+`score` checks Earth runs (`--world 0`; give several seeds, their mean is scored) against
+Earth's population at 1300 CE (before the Black Death, which the simulator doesn't have).
+Each of 13 regions has a target: the median of the standard estimates (McEvedy & Jones,
+Biraben, Durand, Clark, Maddison, HYDE and others, listed with their adjustments in
+`histsim/analysis/earth_targets.py`), with their spread as the range. Where people lived
+inside each region is compared with HYDE 3.3's population map rescaled to those targets
+(`--map out.png` draws where the sim is too dense or too thin). HYDE's files are not
+included: download the baseline `1300AD_pop.zip` (and any other years) from
+https://doi.org/10.24416/UU01-94FNH0 (folder `hyde33_c7_base_mrt2023/zip`; CC-BY,
+Klein Goldewijk, Utrecht University) into a folder and pass it as `--hyde`. The site
+blocks scripted downloads, so use a browser. `--year` picks another HYDE year for the map
+(the regional targets stay those of 1300).
 
 `maps --kind` draws `people` (how they live), `density`, `cultures`, `families`
 (language families), `states` (war fronts in red), `technology` (metal ages and writing), `trade` (routes by
