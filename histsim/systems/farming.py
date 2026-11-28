@@ -409,6 +409,11 @@ class Farming(System):
         # Congo basins on the map), which stone tools can't keep cleared either.
         swamp_forest = (world.biome == BIOME_ID["Wetland"]) & (world.temperature_c >= 20) & (world.precip_mm >= 1500)
         self._rainforest = np.isin(world.biome, [BIOME_ID["Tropical rainforest"], BIOME_ID["Temperate rainforest"]]) | swamp_forest
+        # Grassland sod, which digging sticks and hoes can't break: grass farmers kept to the
+        # river bottoms (the Plains villages of the Missouri; the Pampas and the highveld left
+        # to hunters and herders) until the plough.
+        self._grassland = world.biome == BIOME_ID["Grassland"]
+        self._bottoms = np.clip(self.irrigable / 0.5, 0, 1).astype(np.float32)
         self.km_per_px = world.grid.km_per_px
         self.dpp = world.grid.dpp
         self.cos_lat = np.maximum(np.cos(np.radians(world.grid.lat[:, 0])), 0.05)
@@ -576,17 +581,27 @@ class Farming(System):
         the forest with stone tools holds it to (1 - rainforest_clearing) of the land, until
         they know iron (steel axes fell trees many times faster; Amazonia, with no metal
         tools, stayed thinly farmed away from its rivers; iron came with farmers into the
-        Congo forest). Rechecked when the iron-using area changes."""
+        Congo forest). On grassland, hoes can't break the sod: (1 - sod_breaking) of it away
+        from the river bottoms, until they know the plough. Rechecked when the iron- or
+        plough-using area changes."""
         cfg = state.config
-        if not self._rainforest.any() or cfg.rainforest_clearing <= 0:
+        forest = self._rainforest.any() and cfg.rainforest_clearing > 0
+        grass = self._grassland.any() and cfg.sod_breaking > 0
+        if not forest and not grass:
             return self.arable
-        iron = self.knows(state, "iron") if "tech" in state.cells else np.zeros(state.shape, bool)
-        key = int(np.count_nonzero(iron & self._rainforest))
+        has_tech = "tech" in state.cells
+        iron = self.knows(state, "iron") if has_tech else np.zeros(state.shape, bool)
+        plough = self.knows(state, "plough") if has_tech else np.zeros(state.shape, bool)
+        key = (int(np.count_nonzero(iron & self._rainforest)), int(np.count_nonzero(plough & self._grassland)))
         if getattr(self, "_cleared_key", None) != key:
             self._cleared_key = key
-            slow = self._rainforest & ~iron
-            self._cleared = np.where(slow, self.arable * (1 - cfg.rainforest_clearing), self.arable
-                                     ).astype(np.float32)
+            share = np.ones(state.shape, np.float32)
+            if forest:
+                share = np.where(self._rainforest & ~iron, 1 - cfg.rainforest_clearing, share)
+            if grass:
+                sod = cfg.sod_breaking * (1 - self._bottoms)
+                share = np.where(self._grassland & ~plough, share * (1 - sod), share)
+            self._cleared = (self.arable * share).astype(np.float32)
         return self._cleared
 
     def knows(self, state, key):

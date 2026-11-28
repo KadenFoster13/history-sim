@@ -141,6 +141,10 @@ class GrowthTests(unittest.TestCase):
         polity = st.tables["polity"]
         polity._summary(st)
         chiefs = [s for s in polity.alive_ids() if polity.chief[s]]
+        while not chiefs and st.year < 9000:         # until one is alive (none may be at 7000)
+            sim.run(st.year + 250)
+            polity._summary(st)
+            chiefs = [s for s in polity.alive_ids() if polity.chief[s]]
         self.assertTrue(chiefs)
         sid = chiefs[0]
         polity.cohesion[sid] = 0.01

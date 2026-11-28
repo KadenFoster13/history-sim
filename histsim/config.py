@@ -82,6 +82,7 @@ class SimConfig:
     canal_water_full_aridity: float = 0.5   # canals water dry land fully where rain / evaporation is below this,
     canal_water_none_aridity: float = 1.2   #   not at all above this
     rainforest_clearing: float = 0.5   # share of rainforest farmland stone tools can't keep cleared (until iron)
+    sod_breaking: float = 0.75          # share of grassland away from river bottoms hoes can't break (until the plough)
     raid_km: float = 300.0              # mounted herders raid farmland this far
     raid_share_full: float = 0.3        # ... fully where they hold this share of the land around
     raid_burden: float = 0.85           # share of open farmland's yield raids take at full pressure
