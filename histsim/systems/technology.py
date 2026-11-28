@@ -22,6 +22,7 @@ import numpy as np
 from numba import njit, prange
 from .geo import shift
 from worldgen.hydrology import cell_river_flow
+from scipy.ndimage import maximum_filter
 
 from ..core.simulation import System
 from ..tech import INDEX, NEEDS, TECHS
@@ -231,11 +232,22 @@ class Technology(System):
         contact = _box(state.cells["population"], r, np.add).ravel()[idx] / 1e6
         base = pop[idx] / 1e6 * (1 + cfg.tech_town_boost * needs["towns"])
         usable = self._allowed(needs, known, self.find_bits)
+        reach = max(1, int(round(cfg.tech_independent_km / self.kpp)))
         for i, t in enumerate(TECHS):
             b = np.uint64(1 << i)
             where = np.flatnonzero(usable & ~known & b)
             if not len(where):
                 continue
+            # Only places far from anyone who knows it can find it anew: nearer ones will
+            # learn it by spread, so they don't take the chances of distant, isolated peoples
+            # (Mesoamerica's own writing and fields, while the Old World's spread).
+            knows = (tech & b) != 0
+            if knows.any():
+                near = maximum_filter(knows.reshape(state.shape).astype(np.uint8), size=2 * reach + 1,
+                                      mode=("nearest", "wrap")).ravel()
+                where = where[near[idx[where]] == 0]
+                if not len(where):
+                    continue
             weight = base[where] * np.maximum(contact[where], 1e-9) ** t.crowd
             hazard = float(weight.sum()) / (t.rarity * cfg.tech_years)      # per year
             hazard = hazard / (1 + hazard * t.lag)          # never faster than its methods mature
